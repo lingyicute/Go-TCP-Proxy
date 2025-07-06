@@ -34,7 +34,6 @@ var factoryDefaults = Config{
 }
 
 // ---- 网络处理核心----
-// 增加了 wg *sync.WaitGroup 参数，用于通知 main 函数连接已关闭
 func handleConnection(clientConn net.Conn, remoteAddr string, dialer proxy.Dialer, wg *sync.WaitGroup) {
 	// 通知 main 函数，此连接的处理已结束
 	defer wg.Done()
