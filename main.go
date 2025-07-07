@@ -153,13 +153,13 @@ func main() {
 	fmt.Println()
 
 	// 2. 交互式获取配置
-	fmt.Println(" -----       Go SOCKS5 TCP 代理转发工具       -----")
+	fmt.Println(" -----       Socks5 TCP 代理工具 By 梨       -----")
 	fmt.Println()
 	fmt.Println(" 请根据提示输入配置信息，直接按回车将使用上次保存的值。")
 	fmt.Println()
 	currentConfig.LocalAddr = readInput(" 请输入本地监听地址和端口", currentConfig.LocalAddr)
 	currentConfig.RemoteAddr = readInput(" 请输入远程目标服务地址和端口", currentConfig.RemoteAddr)
-	currentConfig.SocksAddr = readInput(" 请输入 SOCKS5 代理地址和端口", currentConfig.SocksAddr)
+	currentConfig.SocksAddr = readInput(" 请输入 Socks5 代理地址和端口", currentConfig.SocksAddr)
 
 	// 3. 保存最终配置
 	fmt.Println()
@@ -169,10 +169,10 @@ func main() {
 	fmt.Println()
 	log.Println("配置确认，准备启动服务...")
 
-	// 4. 创建 SOCKS5 代理拨号器
 	dialer, err := proxy.SOCKS5("tcp", currentConfig.SocksAddr, nil, proxy.Direct)
+	// 4. 创建 Socks5 代理拨号器
 	if err != nil {
-		log.Fatalf("错误：无法创建 SOCKS5 代理拨号器: %v", err)
+		log.Fatalf("错误：无法创建 Socks5 代理拨号器: %v", err)
 	}
 
 	// 5. 启动监听
