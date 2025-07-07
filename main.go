@@ -144,23 +144,29 @@ func saveConfig(path string, cfg *Config) {
 // main 函数 (已应用建议 3)
 func main() {
 	// 1. 加载配置
+	fmt.Println()
 	configPath, err := getConfigPath()
 	if err != nil {
 		log.Fatalf("初始化配置失败: %v", err)
 	}
 	currentConfig := loadConfig(configPath)
+	fmt.Println()
 
 	// 2. 交互式获取配置
-	fmt.Println("--- Go SOCKS5 TCP 代理转发工具 (带持久化配置) ---")
-	fmt.Println("请根据提示输入配置信息，直接按回车将使用上次保存的值。")
-	fmt.Println("-------------------------------------------------")
-	currentConfig.LocalAddr = readInput("请输入本地监听地址和端口", currentConfig.LocalAddr)
-	currentConfig.RemoteAddr = readInput("请输入远程目标服务地址和端口", currentConfig.RemoteAddr)
-	currentConfig.SocksAddr = readInput("请输入SOCKS5代理地址和端口", currentConfig.SocksAddr)
+	fmt.Println(" -----       Go SOCKS5 TCP 代理转发工具       -----")
+	fmt.Println()
+	fmt.Println(" 请根据提示输入配置信息，直接按回车将使用上次保存的值。")
+	fmt.Println()
+	currentConfig.LocalAddr = readInput(" 请输入本地监听地址和端口", currentConfig.LocalAddr)
+	currentConfig.RemoteAddr = readInput(" 请输入远程目标服务地址和端口", currentConfig.RemoteAddr)
+	currentConfig.SocksAddr = readInput(" 请输入 SOCKS5 代理地址和端口", currentConfig.SocksAddr)
 
 	// 3. 保存最终配置
+	fmt.Println()
 	saveConfig(configPath, &currentConfig)
-	fmt.Println("-------------------------------------------------")
+	fmt.Println()
+	fmt.Println(" -------------------------------------------------")
+	fmt.Println()
 	log.Println("配置确认，准备启动服务...")
 
 	// 4. 创建 SOCKS5 代理拨号器
@@ -178,7 +184,7 @@ func main() {
 	defer listener.Close()
 	log.Printf("服务已在 %s 成功启动，现在可以连接此端口了。", currentConfig.LocalAddr)
 
-	// 【优化】使用 WaitGroup 追踪所有活跃的连接
+	// 使用 WaitGroup 追踪所有活跃的连接
 	var wgConnections sync.WaitGroup
 
 	// 6. 将 listener.Accept() 放入单独的 goroutine，以实现非阻塞监听
@@ -204,6 +210,7 @@ func main() {
 	<-sigChan
 
 	// 8. 执行优雅停机流程
+	fmt.Println()
 	log.Println("收到关闭信号，正在停止服务...")
 
 	// 首先，停止接受新连接。这将导致 Accept() 循环出错并退出。
