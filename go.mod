@@ -1,5 +1,5 @@
-module go-proxy-tunnel
+module github.com/lingyicute/Go-TCP-Proxy
 
-go 1.24.4
+go 1.25.0
 
-require golang.org/x/net v0.41.0
+require golang.org/x/net v0.58.0
