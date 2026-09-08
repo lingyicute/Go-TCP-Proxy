@@ -799,7 +799,7 @@ window.GTP = (function(){
       <article class="card c4 reveal">
         <div class="card-ico"><svg class="ic"><use href="#i-arrows"/></svg></div>
         <h3>全双工转发</h3>
-        <p>每条连接都会开两个 goroutine，分别负责「客户端 → 远程」和「远程 → 客户端」。谁先断开，就顺手把对方也关掉 —— 不留僵尸连接。</p>
+        <p>每条连接都会开两个 goroutine，分别负责「客户端 → 远程」和「远程 → 客户端」。一方发送完毕时只把「我说完了」的信号（TCP 半关闭）传给另一方，对方仍能把剩余的响应发回来；两边都结束后才真正关闭 —— 不丢数据，也不留僵尸连接。</p>
         <div class="viz duplex">
           <div class="dup"><span class="lbl">上行</span><span class="track"><svg class="ic arr"><use href="#i-arrow-r"/></svg></span></div>
           <div class="dup rev"><span class="lbl">下行</span><span class="track"><svg class="ic arr"><use href="#i-arrow-l"/></svg></span></div>
@@ -809,7 +809,7 @@ window.GTP = (function(){
       <article class="card c5 reveal">
         <div class="card-ico alt"><svg class="ic"><use href="#i-power"/></svg></div>
         <h3>优雅退出</h3>
-        <p>按下 Ctrl+C：先停止接受新连接，再耐心等待所有在途数据传输完，最后才安静离场。正在下载的东西，不会被无情掐断。</p>
+        <p>按下 Ctrl+C：先停止接受新连接，再等待在途数据传输完，最后才安静离场。等待有上限（默认 5 秒），超时或再按一次 Ctrl+C 会立即关闭剩余连接 —— 不会被某条空闲长连接卡住。</p>
         <div class="viz">
           <div class="kbdrow"><kbd class="big">Ctrl</kbd><span style="color:var(--on-surface-variant);font-weight:800">+</span><kbd class="big">C</kbd></div>
           <div class="drainbar"></div>
@@ -844,13 +844,12 @@ window.GTP = (function(){
         <div class="step-no">1</div>
         <div class="step-body">
           <h3><svg class="ic"><use href="#i-download"/></svg>获取二进制</h3>
-          <p>前往仓库的 <a href="https://github.com/lingyicute/Go-TCP-Proxy/actions" target="_blank" rel="noopener">GitHub Actions</a> 页面，点开最新一次成功的构建，在 Artifacts 里下载对应系统的 <code class="inline-code">tcp-proxy-&lt;os&gt;-&lt;arch&gt;</code>。或者，从源码自行构建（需要 Go 1.24+）：</p>
+          <p>前往 <a href="https://github.com/lingyicute/Go-TCP-Proxy/releases/tag/nightly" target="_blank" rel="noopener">Nightly Release</a> 页面，下载对应系统的 <code class="inline-code">tcp-proxy-&lt;os&gt;-&lt;arch&gt;</code>。或者，从源码自行构建（需要 Go 1.25+）：</p>
           <div class="codecard">
             <div class="codecard-bar"><span>从源码构建</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
             <pre><code>git clone https://github.com/lingyicute/Go-TCP-Proxy.git
 cd Go-TCP-Proxy
-go mod tidy
-CGO_ENABLED=0 go build -ldflags="-s -w" -o tcp-proxy main.go</code></pre>
+CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o tcp-proxy ./cmd/tcp-proxy</code></pre>
           </div>
         </div>
       </div>
@@ -957,7 +956,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
       </div>
       <div class="acc reveal">
         <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>可以同时转发多个远程目标吗？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
-        <div class="acc-body"><div class="acc-inner"><p>一个实例只对应一个远程目标。想转发多个目标，就多开几个实例、各自监听不同的本地端口即可（它们会共用同一个配置文件，每次启动时记得输入对应的值）。</p></div></div>
+        <div class="acc-body"><div class="acc-inner"><p>一个实例只对应一个远程目标。想转发多个目标，就多开几个实例、各自监听不同的本地端口即可。建议用 <code class="inline-code">-c</code> 给每个实例指定单独的配置文件，或者直接用 <code class="inline-code">-l/-r/-s --no-save</code> 传参，避免互相覆盖。</p></div></div>
       </div>
       <div class="acc reveal">
         <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>Socks5 代理需要用户名和密码怎么办？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
