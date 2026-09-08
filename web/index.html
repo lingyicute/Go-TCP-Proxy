@@ -525,8 +525,30 @@ window.GTP = (function(){
   return { SEEDS:SEEDS, state:state, apply:apply, save:save };
 })();
 </script>
+<style>
+/* ============ 首屏加载覆盖层 ============ */
+#loader{
+  position:fixed; inset:0; z-index:9999;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--surface, #f4f6f0);
+  opacity:1; visibility:visible;
+  transition:opacity .55s ease, visibility .55s ease;
+}
+#loader.done{ opacity:0; visibility:hidden; pointer-events:none; }
+#loader .spin{
+  width:48px; height:48px; border-radius:50%;
+  border:4px solid color-mix(in srgb, var(--primary,#6e9a26) 20%, transparent);
+  border-top-color:var(--primary,#6e9a26);
+  animation:loaderSpin .8s linear infinite;
+}
+@keyframes loaderSpin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){ #loader .spin{ animation-duration:.01ms; } }
+</style>
 </head>
 <body id="home">
+
+<!-- ============ 首屏加载覆盖层 ============ -->
+<div id="loader" aria-hidden="true"><span class="spin"></span></div>
 
 <!-- ============ Lucide 图标符号库（内联 SVG，无第三方脚本） ============ -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -903,7 +925,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
         <div class="viz">
           <div class="codecard" style="margin-top:0">
             <div class="codecard-bar"><span>SSH over Socks5</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
-            <pre><code>ssh -p 10808 user@127.0.0.1</code></pre>
+            <pre><code>ssh -p 10808 <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="c2b7b1a7b082f3f0f5ecf2ecf2ecf3">[email&#160;protected]</a></code></pre>
           </div>
         </div>
       </article>
@@ -985,7 +1007,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
 
 <button id="fab" data-ripple aria-label="回到顶部"><svg class="ic"><use href="#i-arrow-up"/></svg></button>
 
-<script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
 (function(){
   'use strict';
   var G = window.GTP;
@@ -1183,6 +1205,34 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   }
   runType(++runId);
   $('#termRestart').addEventListener('click', function(){ runType(++runId); });
+})();
+
+/* ============ 加载覆盖层 ============ */
+(function(){
+  'use strict';
+  var loader = document.getElementById('loader');
+  if(!loader) return;
+  var faded = false, forced = false;
+  function finish(){
+    if(faded || forced) return;
+    loader.classList.add('done');
+    loader.addEventListener('transitionend', function(){ loader.remove(); });
+    // 兜底：若 transition 未触发，稍后移除
+    setTimeout(function(){ if(loader.parentNode) loader.remove(); }, 900);
+    faded = true;
+  }
+  function force(){ forced = true; finish(); }
+  // 安全兜底：最多等 6 秒，绝不让页面一直被遮住
+  var timer = setTimeout(force, 6000);
+  function ready(){
+    clearTimeout(timer);
+    var pending = [];
+    if(document.readyState !== 'complete') pending.push(new Promise(function(res){ window.addEventListener('load', res, { once:true }); }));
+    if(document.fonts && document.fonts.ready) pending.push(document.fonts.ready.catch(function(){}));
+    Promise.all(pending).then(finish).catch(finish);
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once:true });
+  else ready();
 })();
 </script>
 </body>
