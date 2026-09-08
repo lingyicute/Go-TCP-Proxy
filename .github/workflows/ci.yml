@@ -8,12 +8,11 @@ on:
 permissions:
   contents: read
 
-env:
-  CGO_ENABLED: "0"
-
 jobs:
-  check:
-    name: Lint & Test
+  # 用 go.mod 声明的最低版本跑构建与测试，保证声明的兼容性是真的。
+  # 注意 -race 需要 cgo，所以这里不能设置 CGO_ENABLED=0。
+  test:
+    name: Test (Go from go.mod)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -21,7 +20,6 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          check-latest: true
 
       - name: go mod verify / tidy check
         run: |
@@ -36,8 +34,26 @@ jobs:
             echo "以下文件未经 gofmt 格式化："; echo "$out"; exit 1
           fi
 
-      - name: go vet
-        run: go vet ./...
+      - name: go vet (all target OSes)
+        run: |
+          go vet ./...
+          GOOS=windows go vet ./...
+          GOOS=darwin go vet ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+  # staticcheck / govulncheck 的最新版通常要求最新的 Go，而 setup-go 会设置
+  # GOTOOLCHAIN=local 禁止自动下载工具链——所以这两个工具单独用当前稳定版 Go 运行。
+  lint:
+    name: Lint (Go stable)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
 
       - name: staticcheck
         uses: dominikh/staticcheck-action@v1
@@ -50,12 +66,9 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-      - name: go test
-        run: go test -race -count=1 ./...
-
   build:
     name: Build ${{ matrix.os }}/${{ matrix.arch }}
-    needs: check
+    needs: [test, lint]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -73,12 +86,12 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          check-latest: true
 
       - name: Build (static)
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
         run: |
           version="nightly-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           out="bin/tcp-proxy-${GOOS}-${GOARCH}${{ matrix.ext }}"
