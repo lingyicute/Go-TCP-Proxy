@@ -1,0 +1,1189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Go TCP Proxy by lingyicute · 让任何程序都能走上 Socks5 代理</title>
+<meta name="description" content="一个用 Go 编写的小巧 TCP 代理：把本地端口收到的每一条连接，经由 Socks5 代理送往远程目标。单文件、零依赖、跨平台。">
+<meta name="theme-color" content="#f4f6f0">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236e9a26' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='16' y='16' width='6' height='6' rx='1'/%3E%3Crect x='2' y='16' width='6' height='6' rx='1'/%3E%3Crect x='9' y='2' width='6' height='6' rx='1'/%3E%3Cpath d='M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3'/%3E%3Cpath d='M12 12V8'/%3E%3C/svg%3E">
+<style>
+@font-face {
+    font-family: 'Nebulove';
+    src: url('https://nebulove.92li.uk/Nebulove.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+</style>  
+<style>
+/* ============ Material You tokens（默认：梨绿 · 浅色，JS 会按动态取色覆盖） ============ */
+:root{
+  --primary: hsl(95 64% 40%);            --on-primary: hsl(95 30% 98%);
+  --primary-container: hsl(95 35% 89%);  --on-primary-container: hsl(95 58% 12%);
+  --secondary: hsl(95 24% 40%);          --on-secondary: hsl(95 20% 98%);
+  --secondary-container: hsl(95 26% 90%);--on-secondary-container: hsl(95 36% 14%);
+  --tertiary: hsl(150 42% 40%);          --tertiary-container: hsl(150 46% 89%);
+  --on-tertiary-container: hsl(150 52% 13%);
+  --surface: hsl(95 18% 97%);            --surface-dim: hsl(95 12% 88%);
+  --surface-bright: hsl(95 26% 98%);
+  --surface-cl: hsl(95 35% 99%);         --surface-cll: hsl(95 24% 95%);
+  --surface-c: hsl(95 22% 93%);          --surface-ch: hsl(95 20% 90%);
+  --surface-chh: hsl(95 18% 88%);
+  --on-surface: hsl(95 14% 12%);         --on-surface-variant: hsl(95 10% 35%);
+  --outline: hsl(95 8% 47%);             --outline-variant: hsl(95 12% 80%);
+  --code-bg: hsl(95 24% 9%);  --code-title: hsl(95 20% 13%); --code-text: hsl(95 32% 92%);
+  --t-dim: hsl(95 14% 55%);   --t-p: hsl(95 85% 72%);  --t-i: hsl(150 62% 76%); --t-ok: hsl(142 48% 66%);
+  --r-m:16px; --r-l:24px; --r-xl:28px;
+  color-scheme: light;
+}
+html.dark{ color-scheme: dark; }
+
+/* 主题切换期间的全局色彩过渡 */
+html.theming, html.theming *{ transition: background-color .38s ease, color .38s ease, border-color .38s ease, fill .38s ease, stroke .38s ease, box-shadow .38s ease !important; }
+
+/* ============ 基础 ============ */
+*{ margin:0; padding:0; box-sizing:border-box; }
+html{ scroll-behavior:smooth; scroll-padding-top:88px; }
+body{
+  font-family:'Roboto Flex','Noto Sans SC',system-ui,-apple-system,sans-serif;
+  background:var(--surface); color:var(--on-surface);
+  font-size:16px; line-height:1.65; overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{ background:var(--primary-container); color:var(--on-primary-container); }
+:focus-visible{ outline:2.5px solid var(--primary); outline-offset:3px; border-radius:8px; }
+::-webkit-scrollbar{ width:10px; height:10px; }
+::-webkit-scrollbar-thumb{ background:var(--outline-variant); border-radius:99px; border:2px solid var(--surface); }
+::-webkit-scrollbar-thumb:hover{ background:var(--outline); }
+a{ color:var(--primary); text-decoration:none; }
+code,pre,kbd{ font-family:'JetBrains Mono',ui-monospace,'Roboto Mono',monospace; }
+img,svg{ display:block; }
+button{ font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
+.wrap{ width:min(1180px, 92%); margin-inline:auto; }
+.ic{ width:20px; height:20px; flex:none; }
+[data-ripple]{ position:relative; overflow:hidden; }
+.rk{ position:absolute; border-radius:50%; background:currentColor; opacity:.15; transform:scale(.15); pointer-events:none; animation:rip .55s cubic-bezier(.2,.6,.4,1) forwards; }
+@keyframes rip{ to{ transform:scale(1); opacity:0; } }
+.mono{ font-family:'JetBrains Mono',ui-monospace,monospace; }
+
+/* ============ 顶栏 ============ */
+.topbar{
+  position:sticky; top:0; z-index:60;
+  background:color-mix(in srgb, var(--surface) 78%, transparent);
+  backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+  transition:box-shadow .3s, border-color .3s;
+  border-bottom:1px solid transparent;
+}
+.topbar.scrolled{ border-bottom-color:var(--outline-variant); box-shadow:0 1px 3px rgb(0 0 0/.05); }
+.tb-inner{ display:flex; align-items:center; gap:14px; height:68px; }
+.brand{ display:flex; align-items:center; gap:11px; font-weight:800; font-size:17.5px; color:var(--on-surface); border-radius:var(--r-m); padding:6px 10px 6px 7px; }
+.brand-ico{ width:36px; height:36px; border-radius:12px; background:var(--primary-container); color:var(--on-primary-container); display:grid; place-items:center; }
+.brand-ico .ic{ width:19px; height:19px; }
+.tb-nav{ display:flex; gap:2px; margin-left:10px; }
+.nav-link{
+  padding:9px 16px; border-radius:99px; font-size:14.5px; font-weight:600;
+  color:var(--on-surface-variant); transition:background .2s,color .2s;
+}
+.nav-link:hover{ background:var(--surface-ch); color:var(--on-surface); }
+.nav-link.active{ background:var(--secondary-container); color:var(--on-secondary-container); }
+.tb-actions{ margin-left:auto; display:flex; align-items:center; gap:6px; }
+.icon-btn{
+  width:42px; height:42px; border-radius:99px; display:grid; place-items:center;
+  color:var(--on-surface-variant); transition:background .2s,color .2s;
+}
+.icon-btn:hover{ background:var(--surface-ch); color:var(--on-surface); }
+.icon-btn .ic{ width:19px; height:19px; }
+#themeBtn .sun-moon{ position:relative; width:19px; height:19px; }
+#themeBtn .sun-moon svg{ position:absolute; inset:0; transition:transform .45s cubic-bezier(.2,0,0,1), opacity .3s; }
+html.dark .icon-sun{ transform:rotate(90deg) scale(.4); opacity:0; }
+html:not(.dark) .icon-moon{ transform:rotate(-90deg) scale(.4); opacity:0; }
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:9px;
+  height:48px; padding:0 26px; border-radius:99px; font-size:15px; font-weight:700;
+  transition:box-shadow .25s, transform .25s, background .2s, color .2s; white-space:nowrap;
+}
+.btn .ic{ width:18px; height:18px; }
+.btn-filled{ background:var(--primary); color:var(--on-primary); box-shadow:0 1px 3px rgb(0 0 0/.2); }
+.btn-filled:hover{ box-shadow:0 4px 14px -2px color-mix(in srgb, var(--primary) 55%, transparent); transform:translateY(-1px); }
+.btn-tonal{ background:var(--secondary-container); color:var(--on-secondary-container); }
+.btn-tonal:hover{ box-shadow:0 3px 10px -3px rgb(0 0 0/.25); transform:translateY(-1px); }
+.btn-outline{ border:1.5px solid var(--outline); color:var(--primary); background:transparent; }
+.btn-outline:hover{ background:color-mix(in srgb, var(--primary) 8%, transparent); }
+.btn.sm{ height:40px; padding:0 18px; font-size:14px; }
+.badge-star{
+  font-size:12px; font-weight:800; padding:3px 9px; border-radius:99px;
+  background:color-mix(in srgb, var(--on-primary) 22%, transparent); display:inline-flex; align-items:center; gap:4px;
+}
+.badge-star .ic{ width:11px; height:11px; }
+#menuBtn{ display:none; }
+
+/* 动态取色弹层 */
+.popover{
+  position:absolute; right:max(4%, calc((100% - 1180px)/2)); top:76px; z-index:70;
+  background:var(--surface-cll); border:1px solid var(--outline-variant);
+  border-radius:var(--r-l); padding:20px 22px; width:288px;
+  box-shadow:0 16px 40px -12px rgb(0 0 0/.3);
+  opacity:0; transform:translateY(-8px) scale(.97); pointer-events:none;
+  transition:opacity .22s, transform .28s cubic-bezier(.2,0,0,1);
+}
+.popover.open{ opacity:1; transform:none; pointer-events:auto; }
+.popover h4{ font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px; color:var(--on-surface); }
+.popover h4 .ic{ width:15px; height:15px; color:var(--primary); }
+.popover .po-sub{ font-size:12.5px; color:var(--on-surface-variant); margin:4px 0 14px; }
+.swatches{ display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+.swatch{
+  aspect-ratio:1; border-radius:14px; display:grid; place-items:center; color:#fff;
+  transition:transform .2s, box-shadow .2s; position:relative;
+}
+.swatch:hover{ transform:scale(1.08); }
+.swatch .ic{ width:14px; height:14px; opacity:0; transition:opacity .2s; filter:drop-shadow(0 1px 1px rgb(0 0 0/.4)); }
+.swatch.on{ box-shadow:0 0 0 2.5px var(--surface-cll), 0 0 0 5px var(--primary); }
+.swatch.on .ic{ opacity:1; }
+.po-name{ margin-top:12px; font-size:12.5px; color:var(--on-surface-variant); }
+.po-name b{ color:var(--primary); font-weight:700; }
+
+/* 移动端抽屉 */
+#scrim{ position:fixed; inset:0; background:rgb(0 0 0/.4); z-index:80; opacity:0; pointer-events:none; transition:opacity .3s; }
+#scrim.open{ opacity:1; pointer-events:auto; }
+#drawer{
+  position:fixed; top:0; right:0; bottom:0; width:min(320px, 84vw); z-index:90;
+  background:var(--surface-cll); border-radius:28px 0 0 28px;
+  padding:22px; transform:translateX(105%); transition:transform .38s cubic-bezier(.2,0,0,1);
+  display:flex; flex-direction:column; gap:6px; overflow-y:auto;
+}
+#drawer.open{ transform:none; }
+.dr-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+.dr-title{ font-weight:800; font-size:16px; display:flex; align-items:center; gap:10px; }
+.nav-link.dr{ font-size:15.5px; padding:13px 18px; border-radius:var(--r-m); }
+.dr-seeds{ display:flex; gap:8px; margin-top:16px; padding:0 6px; }
+.dr-seeds .swatch{ width:34px; height:34px; }
+.dr-foot{ margin-top:auto; padding-top:18px; font-size:12.5px; color:var(--on-surface-variant); }
+
+/* ============ Hero ============ */
+.hero{ position:relative; padding:84px 0 72px; overflow:clip; }
+.hero::before{
+  content:""; position:absolute; inset:0;
+  background-image:radial-gradient(circle, var(--outline-variant) 1.1px, transparent 1.6px);
+  background-size:26px 26px; opacity:.45;
+  mask-image:linear-gradient(to bottom, black 20%, transparent 90%);
+  -webkit-mask-image:linear-gradient(to bottom, black 20%, transparent 90%);
+}
+.blob{ position:absolute; border-radius:50%; filter:blur(90px); opacity:.55; pointer-events:none; }
+.blob.b1{ width:520px; height:520px; background:var(--primary-container); top:-180px; right:-120px; animation:float1 16s ease-in-out infinite; }
+.blob.b2{ width:420px; height:420px; background:var(--tertiary-container); bottom:-220px; left:-140px; animation:float2 20s ease-in-out infinite; }
+@keyframes float1{ 50%{ transform:translate(-50px,40px) scale(1.08); } }
+@keyframes float2{ 50%{ transform:translate(60px,-30px) scale(.94); } }
+.hero-grid{ position:relative; display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center; }
+.overline{
+  display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:800;
+  letter-spacing:.16em; color:var(--primary); padding:8px 16px; border-radius:99px;
+  background:var(--primary-container); margin-bottom:24px;
+}
+.overline .ic{ width:14px; height:14px; }
+.hero h1{
+  font-size:clamp(2.5rem, 5.6vw, 4.3rem); line-height:1.14; font-weight:800;
+  letter-spacing:-0.015em; margin-bottom:22px;
+}
+.hero h1 .grad{
+  background:linear-gradient(100deg, var(--primary), var(--tertiary));
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.hero-sub{ font-size:clamp(1rem, 1.6vw, 1.13rem); color:var(--on-surface-variant); max-width:56ch; margin-bottom:34px; }
+.hero-ctas{ display:flex; flex-wrap:wrap; gap:14px; margin-bottom:30px; }
+.chips{ display:flex; flex-wrap:wrap; gap:9px; }
+.chip{
+  display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:600;
+  color:var(--on-surface-variant); padding:7px 15px; border-radius:99px;
+  border:1.5px solid var(--outline-variant); transition:background .2s,border-color .2s;
+}
+.chip:hover{ background:var(--surface-ch); }
+.chip .ic{ width:14px; height:14px; color:var(--primary); }
+
+/* Hero 拓扑图 */
+.hero-viz{ position:relative; }
+.diag-card{
+  background:color-mix(in srgb, var(--surface-cll) 72%, transparent);
+  backdrop-filter:blur(8px);
+  border:1px solid var(--outline-variant); border-radius:32px; padding:26px 16px 20px;
+  box-shadow:0 24px 60px -30px rgb(0 0 0/.28);
+}
+.diag-card svg text{ user-select:none; }
+.diag-cap{ display:flex; justify-content:center; gap:22px; padding-top:14px; font-size:12.5px; color:var(--on-surface-variant); }
+.diag-cap b{ display:inline-flex; align-items:center; gap:7px; font-weight:600; }
+.dot{ width:9px; height:9px; border-radius:50%; display:inline-block; }
+
+/* ============ 终端演示 ============ */
+.termsec{ padding:18px 0 30px; }
+.term{
+  border-radius:28px; overflow:hidden; border:1px solid var(--outline-variant);
+  background:var(--code-bg); box-shadow:0 30px 70px -34px rgb(0 0 0/.5);
+}
+.term-bar{
+  display:flex; align-items:center; gap:12px; padding:13px 18px;
+  background:var(--code-title); color:hsl(0 0% 100% / .72);
+}
+.term-dots{ display:flex; gap:7px; }
+.td{ width:11px; height:11px; border-radius:50%; }
+.td:nth-child(1){ background:#ff5f57; } .td:nth-child(2){ background:#febc2e; } .td:nth-child(3){ background:#28c840; }
+.term-title{ font-size:13px; font-weight:600; display:flex; align-items:center; gap:8px; font-family:'JetBrains Mono',monospace; }
+.term-title .ic{ width:14px; height:14px; }
+.live-pill{ margin-left:auto; font-size:11px; font-weight:800; letter-spacing:.1em; color:var(--t-ok); display:inline-flex; align-items:center; gap:7px; }
+.live-pill::before{ content:""; width:7px; height:7px; border-radius:50%; background:var(--t-ok); animation:blink 1.6s infinite; }
+@keyframes blink{ 50%{ opacity:.25; } }
+.term-restart{ width:34px; height:34px; border-radius:99px; display:grid; place-items:center; color:hsl(0 0% 100% / .55); transition:background .2s,color .2s, transform .5s; }
+.term-restart:hover{ background:hsl(0 0% 100% / .1); color:#fff; transform:rotate(-180deg); }
+.term-restart .ic{ width:15px; height:15px; }
+.term-body{
+  padding:20px 22px 26px; height:392px; overflow:hidden;
+  font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;
+  color:var(--code-text); transition:opacity .5s;
+}
+@media (max-width:640px){ .term-body{ height:340px; font-size:11.5px; } }
+.tl{ white-space:pre-wrap; word-break:break-all; min-height:1.85em; }
+.t-h{ color:var(--t-p); font-weight:600; text-align:center; }
+.t-d{ color:var(--t-dim); }
+.t-p{ color:var(--t-p); }
+.t-i{ color:var(--t-i); font-weight:600; }
+.t-ok{ color:var(--t-ok); }
+.caret{
+  display:inline-block; width:8px; height:1.1em; vertical-align:text-bottom;
+  background:var(--t-p); margin-left:3px; animation:blink 1s steps(1) infinite;
+}
+
+/* ============ 区块通用 ============ */
+section.blk{ padding:88px 0; }
+.sec-head{ max-width:720px; margin-bottom:52px; }
+.sec-head.center{ margin-inline:auto; text-align:center; }
+h2{ font-size:clamp(1.85rem, 4vw, 2.7rem); font-weight:800; letter-spacing:-0.01em; line-height:1.22; margin:16px 0 14px; }
+.sec-head p{ color:var(--on-surface-variant); font-size:clamp(.98rem,1.4vw,1.08rem); }
+.bucket{
+  background:var(--surface-cll); border-radius:44px; padding:80px 0;
+  border:1px solid var(--outline-variant);
+}
+.reveal{ opacity:0; transform:translateY(26px); transition:opacity .7s ease, transform .7s cubic-bezier(.2,0,0,1); }
+.reveal.in{ opacity:1; transform:none; }
+
+/* ============ 特性 Bento ============ */
+.bento{ display:grid; grid-template-columns:repeat(12,1fr); gap:20px; }
+.card{
+  background:var(--surface-cll); border:1px solid var(--outline-variant);
+  border-radius:var(--r-xl); padding:30px 30px 26px; display:flex; flex-direction:column; gap:12px;
+  transition:transform .35s cubic-bezier(.2,0,0,1), box-shadow .35s, background .3s;
+  position:relative; overflow:hidden;
+}
+.card:hover{ transform:translateY(-5px); background:var(--surface-cl); box-shadow:0 20px 44px -20px rgb(0 0 0/.25); }
+.c1{ grid-column:span 7; } .c2{ grid-column:span 5; } .c3{ grid-column:span 5; }
+.c4{ grid-column:span 7; } .c5{ grid-column:span 5; } .c6{ grid-column:span 7; }
+.card-ico{
+  width:46px; height:46px; border-radius:15px; display:grid; place-items:center;
+  background:var(--secondary-container); color:var(--on-secondary-container);
+}
+.card-ico.alt{ background:var(--tertiary-container); color:var(--on-tertiary-container); }
+.card-ico .ic{ width:22px; height:22px; }
+.card h3{ font-size:19px; font-weight:800; letter-spacing:.01em; }
+.card p{ font-size:14.5px; color:var(--on-surface-variant); }
+.card .viz{ margin-top:auto; padding-top:16px; }
+.mini-flow{ background:var(--surface-c); border-radius:var(--r-m); padding:6px 10px 2px; }
+.chat{ display:flex; flex-direction:column; gap:9px; }
+.bubble{
+  align-self:flex-start; max-width:100%; background:var(--surface-ch); border-radius:18px 18px 18px 6px;
+  padding:10px 15px; font-size:13.5px; font-weight:600; display:flex; align-items:center; gap:9px;
+}
+.bubble.ans{ align-self:flex-end; background:var(--primary-container); color:var(--on-primary-container); border-radius:18px 18px 6px 18px; }
+.bubble .ic{ width:15px; height:15px; opacity:.75; }
+.bubble kbd{ font-size:11.5px; background:color-mix(in srgb, var(--on-surface) 10%, transparent); border-radius:6px; padding:2px 7px; font-weight:600; }
+.pathrow{ display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed var(--outline-variant); }
+.pathrow:last-child{ border-bottom:none; }
+.os-tag{ flex:none; font-size:11px; font-weight:800; padding:4px 10px; border-radius:8px; background:var(--tertiary-container); color:var(--on-tertiary-container); min-width:70px; text-align:center; }
+.pathrow code{ font-size:12px; color:var(--on-surface-variant); word-break:break-all; }
+.duplex{ display:flex; flex-direction:column; gap:10px; }
+.dup{ display:flex; align-items:center; gap:12px; background:var(--surface-c); border-radius:14px; padding:10px 16px; overflow:hidden; }
+.dup .lbl{ font-size:11px; font-weight:800; letter-spacing:.08em; color:var(--on-surface-variant); flex:none; width:52px; }
+.dup .track{ flex:1; position:relative; height:20px; }
+.dup .arr{ position:absolute; top:0; color:var(--primary); animation:slideR 2.4s ease-in-out infinite; }
+.dup.rev .arr{ color:var(--tertiary); animation:slideL 2.4s ease-in-out infinite; }
+@keyframes slideR{ 0%{ left:0; opacity:0 } 15%{opacity:1} 85%{opacity:1} 100%{ left:calc(100% - 20px); opacity:0 } }
+@keyframes slideL{ 0%{ right:0; opacity:0 } 15%{opacity:1} 85%{opacity:1} 100%{ right:calc(100% - 20px); opacity:0 } }
+.kbdrow{ display:flex; align-items:center; gap:10px; }
+kbd.big{
+  font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600;
+  background:var(--surface-chh); border:1.5px solid var(--outline-variant); border-bottom-width:3.5px;
+  border-radius:10px; padding:7px 14px; color:var(--on-surface);
+}
+.drainbar{ height:8px; border-radius:99px; background:var(--surface-chh); overflow:hidden; margin-top:16px; position:relative; }
+.drainbar::after{
+  content:""; position:absolute; inset:0; border-radius:99px;
+  background:linear-gradient(100deg, transparent 20%, var(--primary) 45%, var(--tertiary) 60%, transparent 80%);
+  background-size:220% 100%; animation:shimmer 2.6s linear infinite;
+}
+@keyframes shimmer{ from{ background-position:180% 0 } to{ background-position:-80% 0 } }
+.draintxt{ font-size:12px; color:var(--on-surface-variant); margin-top:9px; display:flex; gap:7px; align-items:center; }
+.draintxt .ic{ width:13px; height:13px; color:var(--tertiary); }
+.plat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.plat{
+  background:var(--surface-c); border-radius:16px; padding:13px 15px; display:flex; flex-direction:column; gap:3px;
+  border:1px solid transparent; transition:border-color .25s, background .25s;
+}
+.plat:hover{ border-color:var(--outline-variant); background:var(--surface-ch); }
+.plat b{ font-size:13.5px; display:flex; align-items:center; gap:7px; }
+.plat b .ic{ width:14px; height:14px; color:var(--primary); }
+.plat span{ font-size:11.5px; color:var(--on-surface-variant); font-family:'JetBrains Mono',monospace; }
+
+/* ============ 快速开始 ============ */
+.steps{ display:flex; flex-direction:column; gap:18px; }
+.step{
+  display:flex; gap:22px; background:var(--surface-cl); border:1px solid var(--outline-variant);
+  border-radius:var(--r-xl); padding:28px; transition:transform .3s, box-shadow .3s;
+}
+.step:hover{ transform:translateY(-3px); box-shadow:0 16px 36px -20px rgb(0 0 0/.25); }
+.step-no{
+  flex:none; width:46px; height:46px; border-radius:16px; display:grid; place-items:center;
+  background:var(--primary); color:var(--on-primary); font-weight:800; font-size:19px;
+  box-shadow:0 4px 12px -3px color-mix(in srgb, var(--primary) 60%, transparent);
+}
+.step-body{ flex:1; min-width:0; }
+.step-body h3{ font-size:17.5px; font-weight:800; margin-bottom:6px; display:flex; align-items:center; gap:9px; }
+.step-body h3 .ic{ width:17px; height:17px; color:var(--primary); }
+.step-body p{ font-size:14.5px; color:var(--on-surface-variant); margin-bottom:4px; }
+.codecard{ margin-top:14px; border-radius:var(--r-m); overflow:hidden; border:1px solid hsl(0 0% 100% / .08); background:var(--code-bg); }
+.codecard-bar{
+  display:flex; align-items:center; justify-content:space-between; padding:8px 10px 8px 16px;
+  background:var(--code-title); color:hsl(0 0% 100% / .6); font-size:12px; font-weight:600; font-family:'JetBrains Mono',monospace;
+}
+.ccopy{
+  display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:hsl(0 0% 100% / .65);
+  padding:6px 12px; border-radius:99px; transition:background .2s, color .2s;
+}
+.ccopy:hover{ background:hsl(0 0% 100% / .1); color:#fff; }
+.ccopy .ic{ width:13px; height:13px; }
+.ccopy.done{ color:var(--t-ok); }
+.codecard pre{ padding:16px 18px 18px; overflow-x:auto; font-size:13px; line-height:1.8; color:var(--code-text); }
+.codecard .c-d{ color:var(--t-dim); }
+.codecard .c-p{ color:var(--t-p); }
+.codecard .c-s{ color:var(--t-i); }
+.cfg-grid{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:22px; }
+.panel{ background:var(--surface-cl); border:1px solid var(--outline-variant); border-radius:var(--r-xl); padding:28px; }
+.panel h3{ font-size:16.5px; font-weight:800; margin-bottom:16px; display:flex; align-items:center; gap:9px; }
+.panel h3 .ic{ width:17px; height:17px; color:var(--primary); }
+table.cfg{ width:100%; border-collapse:collapse; font-size:13.5px; }
+table.cfg th{ text-align:left; font-size:12px; letter-spacing:.06em; color:var(--on-surface-variant); font-weight:700; padding:10px 12px; border-bottom:2px solid var(--outline-variant); }
+table.cfg td{ padding:11px 12px; border-bottom:1px solid var(--outline-variant); vertical-align:top; }
+table.cfg tr:last-child td{ border-bottom:none; }
+table.cfg code{ font-size:12.5px; background:var(--surface-ch); padding:3px 8px; border-radius:7px; color:var(--on-surface); }
+table.cfg td:first-child{ font-weight:600; white-space:nowrap; }
+
+/* ============ 应用场景 ============ */
+.use-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+.tip{
+  display:flex; gap:11px; align-items:flex-start; margin-top:auto; padding:13px 15px;
+  background:var(--tertiary-container); color:var(--on-tertiary-container);
+  border-radius:var(--r-m); font-size:12.5px; line-height:1.6;
+}
+.tip .ic{ width:15px; height:15px; flex:none; margin-top:2px; }
+.inline-code{ font-family:'JetBrains Mono',monospace; font-size:12px; background:var(--surface-ch); padding:2.5px 8px; border-radius:7px; color:var(--on-surface); }
+
+/* ============ FAQ ============ */
+.faq-list{ display:flex; flex-direction:column; gap:13px; max-width:860px; margin-inline:auto; }
+.acc{
+  background:var(--surface-cll); border:1px solid var(--outline-variant); border-radius:22px;
+  overflow:hidden; transition:background .3s;
+}
+.acc.open{ background:var(--surface-cl); }
+.acc-head{
+  width:100%; display:flex; align-items:center; gap:14px; text-align:left;
+  padding:19px 24px; font-size:15.5px; font-weight:700; color:var(--on-surface);
+}
+.acc-head .q-ico{ flex:none; width:30px; height:30px; border-radius:10px; display:grid; place-items:center; background:var(--secondary-container); color:var(--on-secondary-container); font-size:13px; font-weight:800; }
+.acc-head .chev{ margin-left:auto; color:var(--on-surface-variant); transition:transform .35s cubic-bezier(.2,0,0,1); }
+.acc.open .chev{ transform:rotate(180deg); }
+.acc-body{ display:grid; grid-template-rows:0fr; transition:grid-template-rows .38s cubic-bezier(.2,0,0,1); }
+.acc.open .acc-body{ grid-template-rows:1fr; }
+.acc-inner{ overflow:hidden; }
+.acc-inner p{ padding:0 24px 22px 68px; font-size:14px; color:var(--on-surface-variant); }
+.acc-inner code{ font-size:12.5px; background:var(--surface-ch); padding:2.5px 8px; border-radius:7px; color:var(--on-surface); }
+
+/* ============ 页脚 ============ */
+footer{ background:var(--surface-cll); border-top:1px solid var(--outline-variant); border-radius:44px 44px 0 0; margin-top:60px; }
+.ft-grid{ display:grid; grid-template-columns:1.3fr 1fr; gap:44px; padding:60px 0 40px; }
+.ft-brand p{ color:var(--on-surface-variant); font-size:14px; max-width:44ch; margin-top:14px; }
+.ft-links{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 28px; align-content:start; }
+.ft-links a{
+  display:inline-flex; align-items:center; gap:8px; padding:9px 14px; border-radius:12px;
+  color:var(--on-surface-variant); font-size:14px; font-weight:600; transition:background .2s,color .2s;
+}
+.ft-links a:hover{ background:var(--surface-ch); color:var(--on-surface); }
+.ft-links a .ic{ width:15px; height:15px; color:var(--primary); }
+.ft-bar{
+  display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+  padding:22px 0 30px; border-top:1px solid var(--outline-variant);
+  font-size:13px; color:var(--on-surface-variant);
+}
+.ft-bar b{ font-weight:700; }
+.heart-ic{ width:13px; height:13px; color:var(--primary); display:inline-block; vertical-align:-2px; }
+
+/* ============ 返回顶部 FAB ============ */
+#fab{
+  position:fixed; right:26px; bottom:26px; z-index:50; width:54px; height:54px;
+  border-radius:18px; background:var(--primary-container); color:var(--on-primary-container);
+  display:grid; place-items:center; box-shadow:0 10px 26px -8px rgb(0 0 0/.4);
+  opacity:0; transform:translateY(18px) scale(.85); pointer-events:none;
+  transition:opacity .3s, transform .35s cubic-bezier(.2,0,0,1);
+}
+#fab.show{ opacity:1; transform:none; pointer-events:auto; }
+#fab:hover{ box-shadow:0 14px 32px -8px rgb(0 0 0/.45); }
+
+/* ============ 响应式 ============ */
+@media (max-width:1020px){
+  .hero-grid{ grid-template-columns:1fr; gap:44px; }
+  .hero{ padding-top:60px; }
+  .hero-sub{ max-width:none; }
+  .c1,.c2,.c3,.c4,.c5,.c6{ grid-column:span 12; }
+  .use-grid{ grid-template-columns:1fr 1fr; }
+  .cfg-grid{ grid-template-columns:1fr; }
+  .ft-grid{ grid-template-columns:1fr; gap:32px; }
+}
+@media (max-width:920px){
+  .tb-nav{ display:none; }
+  .btn-gh .gh-txt{ display:none; }
+  .btn-gh{ padding:0 13px; }
+  #menuBtn{ display:grid; }
+}
+@media (max-width:660px){
+  .use-grid{ grid-template-columns:1fr; }
+  .step{ flex-direction:column; gap:14px; padding:22px; }
+  .plat-grid{ grid-template-columns:1fr 1fr; }
+  .hero-ctas .btn{ flex:1; }
+  section.blk{ padding:64px 0; }
+  .bucket{ padding:60px 0; border-radius:32px; }
+}
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; }
+  .reveal{ opacity:1; transform:none; }
+}
+</style>
+<style>
+body {
+    font-family: "Nebulove", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+}
+</style>
+<script>
+/* ============ Material You 动态取色引擎（首屏同步执行，避免闪烁） ============ */
+window.GTP = (function(){
+  var SEEDS = [
+    { n:'梨绿',   h:95,  s:64 },
+    { n:'Go 青',  h:191, s:78 },
+    { n:'鸢尾蓝', h:233, s:70 },
+    { n:'紫藤',   h:272, s:58 },
+    { n:'樱粉',   h:336, s:62 },
+    { n:'蜜橙',   h:33,  s:80 }
+  ];
+  var LS = 'gtp-theme-v1';
+  function clamp(v){ return Math.max(4, Math.min(100, v)); }
+  function H(h,s,l){ h=((h%360)+360)%360; return 'hsl('+h+' '+clamp(s)+'% '+clamp(l)+'%)'; }
+  function palette(h, s, dark){
+    if(dark) return {
+      'primary':[h,s*.95,74], 'on-primary':[h,s*.75,12], 'primary-container':[h,s*.42,28], 'on-primary-container':[h,s*.7,88],
+      'secondary':[h,20,76], 'on-secondary':[h,24,14], 'secondary-container':[h,18,25], 'on-secondary-container':[h,28,88],
+      'tertiary':[h+55,38,74], 'tertiary-container':[h+55,30,26], 'on-tertiary-container':[h+55,42,89],
+      'surface':[h,10,8], 'surface-dim':[h,9,5], 'surface-bright':[h,10,17],
+      'surface-cl':[h,9,4], 'surface-cll':[h,10,10.5], 'surface-c':[h,10,13], 'surface-ch':[h,10,16.5], 'surface-chh':[h,10,20.5],
+      'on-surface':[h,12,90], 'on-surface-variant':[h,9,71], 'outline':[h,7,59], 'outline-variant':[h,9,27],
+      'code-bg':[h,20,6], 'code-title':[h,18,11], 'code-text':[h,28,91],
+      't-dim':[h,10,52], 't-p':[h,78,68], 't-i':[h+55,58,73], 't-ok':[146,50,60]
+    };
+    return {
+      'primary':[h,s,40], 'on-primary':[h,30,98], 'primary-container':[h,s*.55,89], 'on-primary-container':[h,s*.9,12],
+      'secondary':[h,24,40], 'on-secondary':[h,20,98], 'secondary-container':[h,26,90], 'on-secondary-container':[h,36,14],
+      'tertiary':[h+55,42,40], 'tertiary-container':[h+55,46,89], 'on-tertiary-container':[h+55,52,13],
+      'surface':[h,18,97], 'surface-dim':[h,12,88], 'surface-bright':[h,26,98],
+      'surface-cl':[h,35,99], 'surface-cll':[h,24,95], 'surface-c':[h,22,93], 'surface-ch':[h,20,90], 'surface-chh':[h,18,88],
+      'on-surface':[h,14,12], 'on-surface-variant':[h,10,35], 'outline':[h,8,47], 'outline-variant':[h,12,80],
+      'code-bg':[h,24,9], 'code-title':[h,20,13], 'code-text':[h,32,92],
+      't-dim':[h,14,55], 't-p':[h,85,72], 't-i':[h+55,62,76], 't-ok':[142,48,66]
+    };
+  }
+  var mql = matchMedia('(prefers-color-scheme: dark)');
+  var state = { seed:0, dark:mql.matches, saved:false };
+  try{
+    var s = JSON.parse(localStorage.getItem(LS));
+    if(s && typeof s.seed === 'number'){ state.seed = Math.abs(s.seed) % SEEDS.length; state.dark = !!s.dark; state.saved = true; }
+  }catch(e){}
+  function apply(animate){
+    var sd = SEEDS[state.seed], pal = palette(sd.h, sd.s, state.dark), r = document.documentElement, k;
+    if(animate){ r.classList.add('theming'); setTimeout(function(){ r.classList.remove('theming'); }, 460); }
+    for(k in pal) r.style.setProperty('--'+k, H(pal[k][0], pal[k][1], pal[k][2]));
+    r.classList.toggle('dark', state.dark);
+    var m = document.querySelector('meta[name="theme-color"]');
+    if(m) m.setAttribute('content', H(pal['surface'][0], pal['surface'][1], pal['surface'][2]));
+    if(window.GTP_UI) try{ window.GTP_UI(state, SEEDS); }catch(e){}
+  }
+  function save(){ state.saved = true; try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
+  apply(false);
+  mql.addEventListener('change', function(e){ if(!state.saved){ state.dark = e.matches; apply(true); } });
+  return { SEEDS:SEEDS, state:state, apply:apply, save:save };
+})();
+</script>
+</head>
+<body id="home">
+
+<!-- ============ Lucide 图标符号库（内联 SVG，无第三方脚本） ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-network" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></g></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></g></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></g></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></g></symbol>
+    <symbol id="i-route" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M12 19h4.5a3.5 3.5 0 0 0 0-7h-9a3.5 3.5 0 0 1 0-7H12"/></g></symbol>
+    <symbol id="i-messages" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></g></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></g></symbol>
+    <symbol id="i-arrows" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></g></symbol>
+    <symbol id="i-power" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></g></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></g></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17 10 11 4 5"/><path d="M12 19h8"/></g></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></g></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></g></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></g></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></g></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></g></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></g></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></g></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></g></symbol>
+    <symbol id="i-github" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path fill="currentColor" d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path fill="currentColor" d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/></symbol>
+    <symbol id="i-ext" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></g></symbol>
+    <symbol id="i-arrow-r" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></g></symbol>
+    <symbol id="i-arrow-l" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></g></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></g></symbol>
+    <symbol id="i-return" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 10 4 15l5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></g></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></g></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></g></symbol>
+    <symbol id="i-laptop" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></g></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></g></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></g></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></g></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></g></symbol>
+    <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M12 3a9 9 0 0 1 0 18z"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></g></symbol>
+  </defs>
+</svg>
+
+<!-- ============ 顶栏 ============ -->
+<header class="topbar" id="topbar">
+  <div class="tb-inner wrap">
+    <a class="brand" href="#home" data-ripple aria-label="回到顶部">
+      <span class="brand-ico"><svg class="ic"><use href="#i-network"/></svg></span>
+      <span>Go-TCP-Proxy</span>
+    </a>
+    <nav class="tb-nav" aria-label="主导航">
+      <a class="nav-link" href="#features" data-sec="features" data-ripple>特性</a>
+      <a class="nav-link" href="#quickstart" data-sec="quickstart" data-ripple>快速开始</a>
+      <a class="nav-link" href="#use" data-sec="use" data-ripple>应用场景</a>
+      <a class="nav-link" href="#faq" data-sec="faq" data-ripple>常见问题</a>
+    </nav>
+    <div class="tb-actions">
+      <button class="icon-btn" id="paletteBtn" data-ripple aria-label="动态取色" title="动态取色">
+        <svg class="ic"><use href="#i-theme"/></svg>
+      </button>
+      <button class="icon-btn" id="themeBtn" data-ripple aria-label="切换明暗主题" title="切换明暗主题">
+        <span class="sun-moon">
+          <svg class="ic icon-sun"><use href="#i-sun"/></svg>
+          <svg class="ic icon-moon"><use href="#i-moon"/></svg>
+        </span>
+      </button>
+      <a class="btn btn-filled sm btn-gh" href="https://github.com/lingyicute/Go-TCP-Proxy" target="_blank" rel="noopener" data-ripple>
+        <svg class="ic"><use href="#i-github"/></svg><span class="gh-txt">GitHub</span>
+        <span class="badge-star"><svg class="ic"><use href="#i-star"/></svg><span id="starCount">Star</span></span>
+      </a>
+      <button class="icon-btn" id="menuBtn" data-ripple aria-label="打开菜单"><svg class="ic"><use href="#i-menu"/></svg></button>
+    </div>
+  </div>
+  <div class="popover" id="popover" role="dialog" aria-label="动态取色面板">
+    <h4><svg class="ic"><use href="#i-spark"/></svg>动态取色 · Dynamic Color</h4>
+    <p class="po-sub">Material You 的灵魂：选一颗种子色，整页色调随之重生。</p>
+    <div class="swatches" id="swatches"></div>
+    <p class="po-name">当前主题：<b id="seedName">梨绿</b></p>
+  </div>
+</header>
+
+<!-- ============ 移动端抽屉 ============ -->
+<div id="scrim"></div>
+<aside id="drawer" aria-label="移动端菜单">
+  <div class="dr-head">
+    <span class="dr-title"><span class="brand-ico"><svg class="ic"><use href="#i-network"/></svg></span>Go-TCP-Proxy</span>
+    <button class="icon-btn" id="drawerClose" data-ripple aria-label="关闭菜单"><svg class="ic"><use href="#i-x"/></svg></button>
+  </div>
+  <a class="nav-link dr" href="#features" data-sec="features" data-ripple>特性</a>
+  <a class="nav-link dr" href="#quickstart" data-sec="quickstart" data-ripple>快速开始</a>
+  <a class="nav-link dr" href="#use" data-sec="use" data-ripple>应用场景</a>
+  <a class="nav-link dr" href="#faq" data-sec="faq" data-ripple>常见问题</a>
+  <div class="dr-seeds" id="swatchesM"></div>
+  <p class="dr-foot">点按色点，体验 Material You 动态取色。</p>
+</aside>
+
+<main>
+<!-- ============ Hero ============ -->
+<section class="hero">
+  <div class="blob b1"></div><div class="blob b2"></div>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="overline reveal"><svg class="ic"><use href="#i-plug"/></svg>GO · SOCKS5 · 纯 TCP 转发</span>
+      <h1 class="reveal">不懂代理的程序，<br>交给这根<span class="grad">「延长线」</span>。</h1>
+      <p class="hero-sub reveal">Go-TCP-Proxy 是一个用 Go 编写的小巧 TCP 代理 —— 它把本地端口收到的每一条连接，乖乖地经由 Socks5 代理送往远程目标。你的程序只管连本地端口，绕路、握手、双向搬运，统统交给它。</p>
+      <div class="hero-ctas reveal">
+        <a class="btn btn-filled" href="https://github.com/lingyicute/Go-TCP-Proxy" target="_blank" rel="noopener" data-ripple>
+          <svg class="ic"><use href="#i-github"/></svg>GitHub 仓库
+        </a>
+        <a class="btn btn-tonal" href="#quickstart" data-ripple>
+          <svg class="ic"><use href="#i-zap"/></svg>快速开始
+        </a>
+      </div>
+      <div class="chips reveal">
+        <span class="chip"><svg class="ic"><use href="#i-package"/></svg>单文件 · 零依赖</span>
+        <span class="chip"><svg class="ic"><use href="#i-globe"/></svg>Windows · Linux · macOS</span>
+        <span class="chip"><svg class="ic"><use href="#i-cpu"/></svg>amd64 &amp; arm64</span>
+        <span class="chip"><svg class="ic"><use href="#i-book"/></svg>AGPLv3 开源</span>
+      </div>
+    </div>
+    <div class="hero-viz reveal">
+      <div class="diag-card">
+        <svg viewBox="0 0 640 240" width="100%" role="img" aria-label="连接拓扑图：你的程序 → Go-TCP-Proxy → Socks5 代理 → 远程目标">
+          <!-- 连接线 -->
+          <path d="M140 112 L206 112" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>
+          <path d="M298 112 L364 112" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>
+          <path d="M456 112 L522 112" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>
+          <!-- 中心节点脉冲 -->
+          <circle cx="252" cy="112" r="52" fill="none" style="stroke:var(--primary)" stroke-width="1.5" opacity=".35">
+            <animate attributeName="r" values="52;76" dur="2.6s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values=".35;0" dur="2.6s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="252" cy="112" r="52" fill="none" style="stroke:var(--primary)" stroke-width="1.5" opacity=".35">
+            <animate attributeName="r" values="52;76" dur="2.6s" begin="1.3s" repeatCount="indefinite"/>
+            <animate attributeName="opacity" values=".35;0" dur="2.6s" begin="1.3s" repeatCount="indefinite"/>
+          </circle>
+          <!-- 节点 -->
+          <g>
+            <rect x="52" y="68" width="88" height="88" rx="24" style="fill:var(--surface-clll, var(--surface-cl));stroke:var(--outline-variant)"/>
+            <svg x="83" y="97" width="26" height="26" viewBox="0 0 24 24" style="color:var(--on-surface-variant)"><use href="#i-monitor"/></svg>
+            <text x="96" y="192" text-anchor="middle" font-size="14" font-weight="700" style="fill:var(--on-surface)" font-family="'Roboto Flex','Noto Sans SC',sans-serif">你的程序</text>
+            <text x="96" y="212" text-anchor="middle" font-size="10.5" style="fill:var(--on-surface-variant)" font-family="'JetBrains Mono',monospace">任意 TCP 客户端</text>
+          </g>
+          <g>
+            <rect x="208" y="68" width="88" height="88" rx="24" style="fill:var(--primary-container)"/>
+            <svg x="239" y="97" width="26" height="26" viewBox="0 0 24 24" style="color:var(--on-primary-container)"><use href="#i-network"/></svg>
+            <text x="252" y="192" text-anchor="middle" font-size="14" font-weight="700" style="fill:var(--on-surface)" font-family="'Roboto Flex','Noto Sans SC',sans-serif">Go-TCP-Proxy</text>
+            <text x="252" y="212" text-anchor="middle" font-size="10.5" style="fill:var(--on-surface-variant)" font-family="'JetBrains Mono',monospace">监听 127.0.0.1:10808</text>
+          </g>
+          <g>
+            <rect x="364" y="68" width="88" height="88" rx="24" style="fill:var(--surface-cl);stroke:var(--outline-variant)"/>
+            <svg x="395" y="97" width="26" height="26" viewBox="0 0 24 24" style="color:var(--on-surface-variant)"><use href="#i-server"/></svg>
+            <text x="408" y="192" text-anchor="middle" font-size="14" font-weight="700" style="fill:var(--on-surface)" font-family="'Roboto Flex','Noto Sans SC',sans-serif">Socks5 代理</text>
+            <text x="408" y="212" text-anchor="middle" font-size="10.5" style="fill:var(--on-surface-variant)" font-family="'JetBrains Mono',monospace">握手 · 绕路</text>
+          </g>
+          <g>
+            <rect x="522" y="68" width="88" height="88" rx="24" style="fill:var(--surface-cl);stroke:var(--outline-variant)"/>
+            <svg x="553" y="97" width="26" height="26" viewBox="0 0 24 24" style="color:var(--on-surface-variant)"><use href="#i-globe"/></svg>
+            <text x="566" y="192" text-anchor="middle" font-size="14" font-weight="700" style="fill:var(--on-surface)" font-family="'Roboto Flex','Noto Sans SC',sans-serif">远程目标</text>
+            <text x="566" y="212" text-anchor="middle" font-size="10.5" style="fill:var(--on-surface-variant)" font-family="'JetBrains Mono',monospace">example.com:80</text>
+          </g>
+          <!-- 数据包：客户端 → 远程 -->
+          <circle r="5" style="fill:var(--primary)"><animateMotion dur="2.2s" repeatCount="indefinite" path="M140 112 L206 112"/></circle>
+          <circle r="5" style="fill:var(--primary)"><animateMotion dur="2.2s" begin="0.7s" repeatCount="indefinite" path="M298 112 L364 112"/></circle>
+          <circle r="5" style="fill:var(--primary)"><animateMotion dur="2.2s" begin="1.4s" repeatCount="indefinite" path="M456 112 L522 112"/></circle>
+          <!-- 数据包：远程 → 客户端 -->
+          <circle r="4" style="fill:var(--tertiary)"><animateMotion dur="3s" begin="0.4s" repeatCount="indefinite" path="M206 112 L140 112"/></circle>
+          <circle r="4" style="fill:var(--tertiary)"><animateMotion dur="3s" begin="1.1s" repeatCount="indefinite" path="M364 112 L298 112"/></circle>
+          <circle r="4" style="fill:var(--tertiary)"><animateMotion dur="3s" begin="1.8s" repeatCount="indefinite" path="M522 112 L456 112"/></circle>
+        </svg>
+        <div class="diag-cap">
+          <b><span class="dot" style="background:var(--primary)"></span>客户端 → 远程</b>
+          <b><span class="dot" style="background:var(--tertiary)"></span>远程 → 客户端 · 全双工</b>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 终端交互演示 ============ -->
+<section class="termsec wrap reveal" id="terminal">
+  <div class="term">
+    <div class="term-bar">
+      <span class="term-dots"><span class="td"></span><span class="td"></span><span class="td"></span></span>
+      <span class="term-title"><svg class="ic"><use href="#i-terminal"/></svg>tcp-proxy —— 交互式配置</span>
+      <span class="live-pill">LIVE 演示</span>
+      <button class="term-restart" id="termRestart" data-ripple aria-label="重新播放演示"><svg class="ic"><use href="#i-rotate"/></svg></button>
+    </div>
+    <div class="term-body" id="termBody"><div id="termLines"></div></div>
+  </div>
+</section>
+
+<!-- ============ 特性 ============ -->
+<section class="blk" id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="overline"><svg class="ic"><use href="#i-spark"/></svg>FEATURES · 特性</span>
+      <h2>把一件事，做到极致。</h2>
+      <p>没有花里胡哨的规则引擎，也不需要一大篇配置 —— 一根线、三个问题、六次贴心设计，正好够用。</p>
+    </div>
+    <div class="bento">
+      <article class="card c1 reveal">
+        <div class="card-ico"><svg class="ic"><use href="#i-route"/></svg></div>
+        <h3>一根线的事</h3>
+        <p>一个本地端口，对应一个远程目标，中间走一个 Socks5 代理。它只做一件事，并且把这件事做好。</p>
+        <div class="viz mini-flow">
+          <svg viewBox="0 0 560 74" width="100%" aria-hidden="true">
+            <path d="M92 37 L184 37" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/>
+            <path d="M276 37 L368 37" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/>
+            <circle r="4.5" style="fill:var(--primary)"><animateMotion dur="2s" repeatCount="indefinite" path="M92 37 L184 37"/></circle>
+            <circle r="4.5" style="fill:var(--primary)"><animateMotion dur="2s" begin="0.65s" repeatCount="indefinite" path="M276 37 L368 37"/></circle>
+            <g font-family="'JetBrains Mono',monospace" font-size="11" style="fill:var(--on-surface-variant)">
+              <rect x="14" y="17" width="78" height="40" rx="13" style="fill:var(--surface-ch)"/>
+              <text x="53" y="42" text-anchor="middle">程序</text>
+              <rect x="184" y="17" width="92" height="40" rx="13" style="fill:var(--primary-container)"/>
+              <text x="230" y="42" text-anchor="middle" style="fill:var(--on-primary-container)">本地端口</text>
+              <rect x="368" y="17" width="88" height="40" rx="13" style="fill:var(--surface-ch)"/>
+              <text x="412" y="42" text-anchor="middle">Socks5</text>
+              <rect x="462" y="17" width="84" height="40" rx="13" style="fill:var(--tertiary-container)"/>
+              <text x="504" y="42" text-anchor="middle" style="fill:var(--on-tertiary-container)">目标</text>
+            </g>
+          </svg>
+        </div>
+      </article>
+
+      <article class="card c2 reveal">
+        <div class="card-ico"><svg class="ic"><use href="#i-messages"/></svg></div>
+        <h3>交互式配置</h3>
+        <p>启动后它会一句一句地问你，每个问题都带着默认值 —— 直接按回车就好，第一次用也不会迷路。</p>
+        <div class="viz chat">
+          <div class="bubble"><svg class="ic"><use href="#i-messages"/></svg>本地监听地址和端口？</div>
+          <div class="bubble ans"><kbd>127.0.0.1:10808</kbd><svg class="ic"><use href="#i-return"/></svg>回车采用</div>
+        </div>
+      </article>
+
+      <article class="card c3 reveal">
+        <div class="card-ico alt"><svg class="ic"><use href="#i-save"/></svg></div>
+        <h3>记住你的选择</h3>
+        <p>每次确认过的配置都会自动保存到系统配置目录，下次启动一路回车沿用，也可以手动编辑 <span class="inline-code">config.json</span>。</p>
+        <div class="viz">
+          <div class="pathrow"><span class="os-tag">Linux</span><code>~/.config/go-proxy-tunnel/</code></div>
+          <div class="pathrow"><span class="os-tag">macOS</span><code>~/Library/Application Support/go-proxy-tunnel/</code></div>
+          <div class="pathrow"><span class="os-tag">Windows</span><code>%AppData%\go-proxy-tunnel\</code></div>
+        </div>
+      </article>
+
+      <article class="card c4 reveal">
+        <div class="card-ico"><svg class="ic"><use href="#i-arrows"/></svg></div>
+        <h3>全双工转发</h3>
+        <p>每条连接都会开两个 goroutine，分别负责「客户端 → 远程」和「远程 → 客户端」。谁先断开，就顺手把对方也关掉 —— 不留僵尸连接。</p>
+        <div class="viz duplex">
+          <div class="dup"><span class="lbl">上行</span><span class="track"><svg class="ic arr"><use href="#i-arrow-r"/></svg></span></div>
+          <div class="dup rev"><span class="lbl">下行</span><span class="track"><svg class="ic arr"><use href="#i-arrow-l"/></svg></span></div>
+        </div>
+      </article>
+
+      <article class="card c5 reveal">
+        <div class="card-ico alt"><svg class="ic"><use href="#i-power"/></svg></div>
+        <h3>优雅退出</h3>
+        <p>按下 Ctrl+C：先停止接受新连接，再耐心等待所有在途数据传输完，最后才安静离场。正在下载的东西，不会被无情掐断。</p>
+        <div class="viz">
+          <div class="kbdrow"><kbd class="big">Ctrl</kbd><span style="color:var(--on-surface-variant);font-weight:800">+</span><kbd class="big">C</kbd></div>
+          <div class="drainbar"></div>
+          <div class="draintxt"><svg class="ic"><use href="#i-check"/></svg>正在等待活动连接自然结束…</div>
+        </div>
+      </article>
+
+      <article class="card c6 reveal">
+        <div class="card-ico"><svg class="ic"><use href="#i-package"/></svg></div>
+        <h3>单文件 · 零依赖 · 跨平台</h3>
+        <p><span class="inline-code">CGO_ENABLED=0</span> 静态编译，一个可执行文件拷到哪里都能跑。GitHub Actions 会自动构建三大系统的全部架构：</p>
+        <div class="viz plat-grid">
+          <div class="plat"><b><svg class="ic"><use href="#i-terminal"/></svg>Linux</b><span>amd64 / arm64</span></div>
+          <div class="plat"><b><svg class="ic"><use href="#i-monitor"/></svg>Windows</b><span>amd64 / arm64</span></div>
+          <div class="plat"><b><svg class="ic"><use href="#i-laptop"/></svg>macOS</b><span>Intel / Apple&nbsp;Silicon</span></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 快速开始 ============ -->
+<section class="blk bucket" id="quickstart">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="overline"><svg class="ic"><use href="#i-zap"/></svg>QUICKSTART · 快速开始</span>
+      <h2>三个问题，即刻开跑。</h2>
+      <p>下载或构建一个二进制，回答三个问题，然后让你的程序去连本地端口 —— 就是这么简单。</p>
+    </div>
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-no">1</div>
+        <div class="step-body">
+          <h3><svg class="ic"><use href="#i-download"/></svg>获取二进制</h3>
+          <p>前往仓库的 <a href="https://github.com/lingyicute/Go-TCP-Proxy/actions" target="_blank" rel="noopener">GitHub Actions</a> 页面，点开最新一次成功的构建，在 Artifacts 里下载对应系统的 <code class="inline-code">tcp-proxy-&lt;os&gt;-&lt;arch&gt;</code>。或者，从源码自行构建（需要 Go 1.24+）：</p>
+          <div class="codecard">
+            <div class="codecard-bar"><span>从源码构建</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
+            <pre><code>git clone https://github.com/lingyicute/Go-TCP-Proxy.git
+cd Go-TCP-Proxy
+go mod tidy
+CGO_ENABLED=0 go build -ldflags="-s -w" -o tcp-proxy main.go</code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-no">2</div>
+        <div class="step-body">
+          <h3><svg class="ic"><use href="#i-terminal"/></svg>启动它</h3>
+          <p>运行二进制，回答它的三个问题（每个问题都有默认值，直接回车即可），服务就启动了。</p>
+          <div class="codecard">
+            <div class="codecard-bar"><span>运行</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
+            <pre><code>./tcp-proxy          <span class="c-d"># Linux / macOS</span>
+tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
+          </div>
+        </div>
+      </div>
+      <div class="step reveal">
+        <div class="step-no">3</div>
+        <div class="step-body">
+          <h3><svg class="ic"><use href="#i-plug"/></svg>连上本地端口</h3>
+          <p>让你的程序去连 <code class="inline-code">127.0.0.1:10808</code> —— 绕路、握手、双向搬运，剩下的统统交给它。想让局域网内其它设备也用？把监听地址改为 <code class="inline-code">0.0.0.0:10808</code>（请确认网络环境可信）。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="cfg-grid">
+      <div class="panel reveal">
+        <h3><svg class="ic"><use href="#i-save"/></svg>配置项一览</h3>
+        <table class="cfg">
+          <thead><tr><th>配置项</th><th>JSON 字段</th><th>默认值</th></tr></thead>
+          <tbody>
+            <tr><td>本地监听地址</td><td><code>local_addr</code></td><td><code>127.0.0.1:10808</code></td></tr>
+            <tr><td>远程目标地址</td><td><code>remote_addr</code></td><td><code>example.com:80</code></td></tr>
+            <tr><td>Socks5 代理</td><td><code>socks_addr</code></td><td><code>127.0.0.1:1080</code></td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:14px;font-size:13px;color:var(--on-surface-variant)">远程目标支持域名或 IP；Socks5 代理暂不支持用户名密码认证。</p>
+      </div>
+      <div class="panel reveal">
+        <h3><svg class="ic"><use href="#i-book"/></svg>config.json 长这样</h3>
+        <div class="codecard" style="margin-top:0">
+          <div class="codecard-bar"><span>config.json</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
+          <pre><code>{
+  <span class="c-p">"local_addr"</span>:  <span class="c-s">"127.0.0.1:10808"</span>,
+  <span class="c-p">"remote_addr"</span>: <span class="c-s">"example.com:80"</span>,
+  <span class="c-p">"socks_addr"</span>:  <span class="c-s">"127.0.0.1:1080"</span>
+}</code></pre>
+        </div>
+        <p style="margin-top:14px;font-size:13px;color:var(--on-surface-variant)">保存于系统用户配置目录（<code class="inline-code">go-proxy-tunnel</code> 文件夹），随时可手动编辑。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 应用场景 ============ -->
+<section class="blk" id="use">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="overline"><svg class="ic"><use href="#i-globe"/></svg>USE CASES · 应用场景</span>
+      <h2>它能拿来做什么？</h2>
+      <p>只要能填 IP 和端口，就能借它绕路 —— 数据库客户端、游戏、老旧桌面软件，统统不在话下。</p>
+    </div>
+    <div class="use-grid">
+      <article class="card reveal">
+        <div class="card-ico"><svg class="ic"><use href="#i-cpu"/></svg></div>
+        <h3>让老客户端走上代理</h3>
+        <p>有些程序天生「不懂」代理 —— 配置里压根没有 Socks5 这一栏。对它们来说，Go-TCP-Proxy 就是一个普通的 TCP 端口，接上即走。</p>
+      </article>
+      <article class="card reveal">
+        <div class="card-ico alt"><svg class="ic"><use href="#i-lock"/></svg></div>
+        <h3>通过 Socks5 使用 SSH</h3>
+        <p>把 <code class="inline-code">remote_addr</code> 设成 <code class="inline-code">your-server:22</code>，然后：</p>
+        <div class="viz">
+          <div class="codecard" style="margin-top:0">
+            <div class="codecard-bar"><span>SSH over Socks5</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
+            <pre><code>ssh -p 10808 user@127.0.0.1</code></pre>
+          </div>
+        </div>
+      </article>
+      <article class="card reveal">
+        <div class="card-ico"><svg class="ic"><use href="#i-laptop"/></svg></div>
+        <h3>远程服务的本地「别名」</h3>
+        <p>把某个常用的远程端口映射到本地固定端口，调试时再也不用来回翻地址和端口号。</p>
+        <div class="viz tip">
+          <svg class="ic"><use href="#i-shield"/></svg>
+          <span>小提示：多开几个实例、各自监听不同本地端口，就能同时转发多个远程目标。</span>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="blk" id="faq" style="padding-top:20px">
+  <div class="wrap">
+    <div class="sec-head center">
+      <span class="overline"><svg class="ic"><use href="#i-messages"/></svg>FAQ · 常见问题</span>
+      <h2>你可能想问</h2>
+      <p>还有其它疑问？欢迎到 GitHub 仓库提 Issue。</p>
+    </div>
+    <div class="faq-list">
+      <div class="acc reveal">
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>它和 Socks5 代理本身有什么区别？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <div class="acc-body"><div class="acc-inner"><p>Socks5 代理需要客户端「会说 Socks5 协议」才能使用；Go-TCP-Proxy 则是替那些不会说的客户端代劳 —— 对客户端来说，它就是一个普通的 TCP 端口。</p></div></div>
+      </div>
+      <div class="acc reveal">
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>可以同时转发多个远程目标吗？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <div class="acc-body"><div class="acc-inner"><p>一个实例只对应一个远程目标。想转发多个目标，就多开几个实例、各自监听不同的本地端口即可（它们会共用同一个配置文件，每次启动时记得输入对应的值）。</p></div></div>
+      </div>
+      <div class="acc reveal">
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>Socks5 代理需要用户名和密码怎么办？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <div class="acc-body"><div class="acc-inner"><p>目前版本使用的是无认证的 Socks5 拨号器，暂时不支持账号密码认证 —— 欢迎 Pull Request！</p></div></div>
+      </div>
+      <div class="acc reveal">
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>启动时提示「无法监听本地端口」？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <div class="acc-body"><div class="acc-inner"><p>多半是端口被占用了，换一个端口试试；在 Linux / macOS 上监听 1024 以下的端口还需要管理员权限。</p></div></div>
+      </div>
+      <div class="acc reveal">
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>提示「通过代理连接到 … 失败」？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <div class="acc-body"><div class="acc-inner"><p>请先确认 Socks5 代理本身在运行且地址填写正确，再确认代理能够访问到远程目标。</p></div></div>
+      </div>
+      <div class="acc reveal">
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>为什么配置目录叫 <code>go-proxy-tunnel</code> 而不是 Go-TCP-Proxy？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <div class="acc-body"><div class="acc-inner"><p>因为程序内部的模块名就是 <code>go-proxy-tunnel</code>，配置目录沿用了它。改了名字会让老用户的配置「失踪」，所以就这么留着啦。</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ============ 页脚 ============ -->
+<footer>
+  <div class="wrap">
+    <div class="ft-grid">
+      <div class="ft-brand">
+        <a class="brand" href="#home" data-ripple style="display:inline-flex">
+          <span class="brand-ico"><svg class="ic"><use href="#i-network"/></svg></span>
+          <span>Go-TCP-Proxy</span>
+        </a>
+        <p>一个用 Go 写的小小 TCP 代理：把本地端口收到的每一条连接，都乖乖地经由 Socks5 代理送往远程目标。用 <svg class="heart-ic"><use href="#i-heart"/></svg> 和 Go 制作。</p>
+      </div>
+      <nav class="ft-links" aria-label="页脚导航">
+        <a href="https://github.com/lingyicute/Go-TCP-Proxy" target="_blank" rel="noopener"><svg class="ic"><use href="#i-github"/></svg>GitHub 仓库<svg class="ic" style="margin-left:auto;opacity:.5"><use href="#i-ext"/></svg></a>
+        <a href="https://github.com/lingyicute/Go-TCP-Proxy/issues" target="_blank" rel="noopener"><svg class="ic"><use href="#i-messages"/></svg>Issues<svg class="ic" style="margin-left:auto;opacity:.5"><use href="#i-ext"/></svg></a>
+        <a href="https://github.com/lingyicute/Go-TCP-Proxy/actions" target="_blank" rel="noopener"><svg class="ic"><use href="#i-zap"/></svg>Actions 构建<svg class="ic" style="margin-left:auto;opacity:.5"><use href="#i-ext"/></svg></a>
+        <a href="https://github.com/lingyicute/Go-TCP-Proxy/blob/main/LICENSE" target="_blank" rel="noopener"><svg class="ic"><use href="#i-book"/></svg>AGPLv3 许可证<svg class="ic" style="margin-left:auto;opacity:.5"><use href="#i-ext"/></svg></a>
+      </nav>
+    </div>
+    <div class="ft-bar">
+      <span>© 2025–2026 <b>lingyicute</b> · 以 GNU AGPLv3 发布</span>
+      <span>Material You 设计 · 动态取色 · 纯原生 HTML / CSS / JS</span>
+    </div>
+  </div>
+</footer>
+
+<button id="fab" data-ripple aria-label="回到顶部"><svg class="ic"><use href="#i-arrow-up"/></svg></button>
+
+<script>
+(function(){
+  'use strict';
+  var G = window.GTP;
+  var $ = function(s){ return document.querySelector(s); };
+  var $$ = function(s){ return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- 动态取色 UI ---------- */
+  function swatchStyle(seed){ return 'background:linear-gradient(135deg, hsl('+seed.h+' '+seed.s+'% 55%), hsl('+(seed.h+55)+' '+Math.round(seed.s*.6)+'% 48%))'; }
+  function buildSwatches(container){
+    container.innerHTML = '';
+    G.SEEDS.forEach(function(sd, i){
+      var b = document.createElement('button');
+      b.className = 'swatch'; b.type = 'button'; b.title = sd.n;
+      b.setAttribute('aria-label', '使用主题色：' + sd.n);
+      b.style.cssText = swatchStyle(sd);
+      b.innerHTML = '<svg class="ic"><use href="#i-check"/></svg>';
+      b.addEventListener('click', function(){ G.state.seed = i; G.save(); G.apply(true); });
+      container.appendChild(b);
+    });
+  }
+  buildSwatches($('#swatches')); buildSwatches($('#swatchesM'));
+
+  window.GTP_UI = function(state){
+    $$('.swatches, .dr-seeds').forEach(function(box){
+      Array.prototype.forEach.call(box.children, function(el, i){ el.classList.toggle('on', i === state.seed); });
+    });
+    var nameEl = $('#seedName'); if(nameEl) nameEl.textContent = G.SEEDS[state.seed].n;
+    $('#themeBtn').setAttribute('aria-label', state.dark ? '切换到浅色主题' : '切换到深色主题');
+  };
+  window.GTP_UI(G.state);
+
+  $('#themeBtn').addEventListener('click', function(){ G.state.dark = !G.state.dark; G.save(); G.apply(true); });
+
+  /* ---------- 取色弹层 ---------- */
+  var popover = $('#popover'), paletteBtn = $('#paletteBtn');
+  paletteBtn.addEventListener('click', function(e){ e.stopPropagation(); popover.classList.toggle('open'); });
+  document.addEventListener('click', function(e){
+    if(popover.classList.contains('open') && !popover.contains(e.target) && e.target !== paletteBtn) popover.classList.remove('open');
+  });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ popover.classList.remove('open'); closeDrawer(); } });
+
+  /* ---------- 抽屉菜单 ---------- */
+  var drawer = $('#drawer'), scrim = $('#scrim');
+  function openDrawer(){ drawer.classList.add('open'); scrim.classList.add('open'); document.body.style.overflow = 'hidden'; }
+  function closeDrawer(){ drawer.classList.remove('open'); scrim.classList.remove('open'); document.body.style.overflow = ''; }
+  $('#menuBtn').addEventListener('click', openDrawer);
+  $('#drawerClose').addEventListener('click', closeDrawer);
+  scrim.addEventListener('click', closeDrawer);
+  $$('#drawer .nav-link').forEach(function(a){ a.addEventListener('click', closeDrawer); });
+
+  /* ---------- 涟漪 ---------- */
+  if(!reduced){
+    document.addEventListener('pointerdown', function(e){
+      var el = e.target.closest('[data-ripple]'); if(!el) return;
+      var r = el.getBoundingClientRect();
+      var d = Math.max(r.width, r.height) * 2.4;
+      var s = document.createElement('span');
+      s.className = 'rk';
+      s.style.cssText = 'width:' + d + 'px;height:' + d + 'px;left:' + (e.clientX - r.left - d/2) + 'px;top:' + (e.clientY - r.top - d/2) + 'px;';
+      el.appendChild(s);
+      s.addEventListener('animationend', function(){ s.remove(); });
+    });
+  }
+
+  /* ---------- 顶栏滚动态 & FAB ---------- */
+  var topbar = $('#topbar'), fab = $('#fab');
+  function onScroll(){
+    topbar.classList.toggle('scrolled', window.scrollY > 8);
+    fab.classList.toggle('show', window.scrollY > 640);
+  }
+  window.addEventListener('scroll', onScroll, { passive:true }); onScroll();
+  fab.addEventListener('click', function(){ window.scrollTo({ top:0, behavior: reduced ? 'auto' : 'smooth' }); });
+
+  /* ---------- 滚动显现 ---------- */
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); }
+    });
+  }, { threshold:.12, rootMargin:'0px 0px -6% 0px' });
+  $$('.reveal').forEach(function(el, i){
+    el.style.transitionDelay = (i % 4) * 65 + 'ms';
+    io.observe(el);
+  });
+
+  /* ---------- 导航高亮 ---------- */
+  var spy = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(en.isIntersecting){
+        $$('.nav-link').forEach(function(l){ l.classList.toggle('active', l.dataset.sec === en.target.id); });
+      }
+    });
+  }, { rootMargin:'-38% 0px -55% 0px' });
+  ['features','quickstart','use','faq'].forEach(function(id){ var s = document.getElementById(id); if(s) spy.observe(s); });
+
+  /* ---------- FAQ 手风琴 ---------- */
+  $$('.acc-head').forEach(function(head){
+    head.addEventListener('click', function(){
+      var item = head.parentElement, open = item.classList.toggle('open');
+      head.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  });
+
+  /* ---------- 复制 ---------- */
+  $$('.ccopy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var code = btn.closest('.codecard').querySelector('code').innerText;
+      function done(){
+        btn.classList.add('done');
+        btn.innerHTML = '<svg class="ic"><use href="#i-check"/></svg>已复制';
+        setTimeout(function(){
+          btn.classList.remove('done');
+          btn.innerHTML = '<svg class="ic"><use href="#i-copy"/></svg>复制';
+        }, 1600);
+      }
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(code).then(done).catch(function(){ fallback(); });
+      } else fallback();
+      function fallback(){
+        var ta = document.createElement('textarea');
+        ta.value = code; ta.style.cssText = 'position:fixed;opacity:0';
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); done(); }catch(e){}
+        ta.remove();
+      }
+    });
+  });
+
+  /* ---------- GitHub star 数（失败时优雅降级为 Star） ---------- */
+  fetch('https://api.github.com/repos/lingyicute/Go-TCP-Proxy')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(d && typeof d.stargazers_count === 'number'){
+        $('#starCount').textContent = d.stargazers_count >= 1000 ? (d.stargazers_count/1000).toFixed(1) + 'k' : String(d.stargazers_count);
+      }
+    })
+    .catch(function(){});
+
+  /* ---------- 终端打字机演示 ---------- */
+  var linesEl = $('#termLines'), termBody = $('#termBody');
+  var runId = 0;
+  if(reduced){ $$('animateMotion, animate').forEach(function(el){ el.remove(); }); }
+
+  function sleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+  async function runType(id){
+    linesEl.innerHTML = '';
+    termBody.style.opacity = 1;
+    function line(cls){
+      var d = document.createElement('div');
+      d.className = 'tl' + (cls ? ' ' + cls : '');
+      linesEl.appendChild(d);
+      return d;
+    }
+    var caret = document.createElement('span'); caret.className = 'caret';
+    function alive(){ return id === runId; }
+
+    line('t-h').textContent = ' -----      Socks5 TCP 代理工具 By 梨      -----';
+    line().innerHTML = '&nbsp;';
+    line('t-d').textContent = ' 请根据提示输入配置信息，直接按回车将使用上次保存的值。';
+    line().innerHTML = '&nbsp;';
+    await sleep(reduced ? 60 : 900); if(!alive()) return;
+
+    async function ask(q, typed){
+      var l = line();
+      var qs = document.createElement('span'); qs.className = 't-p'; qs.textContent = q; l.appendChild(qs);
+      var vs = document.createElement('span'); vs.className = 't-i'; l.appendChild(vs);
+      l.appendChild(caret);
+      await sleep(reduced ? 40 : 620); if(!alive()) return false;
+      if(typed){
+        for(var i = 0; i < typed.length; i++){
+          vs.textContent += typed[i];
+          await sleep(reduced ? 8 : 55 + Math.random() * 65);
+          if(!alive()) return false;
+        }
+      }
+      await sleep(reduced ? 40 : 460); if(!alive()) return false;
+      return true;
+    }
+
+    if(!(await ask(' 请输入本地监听地址和端口 [127.0.0.1:10808]: ', ''))) return;
+    if(!(await ask(' 请输入远程目标服务地址和端口 [example.com:80]: ', 'my-server.com:22'))) return;
+    if(!(await ask(' 请输入 Socks5 代理地址和端口 [127.0.0.1:1080]: ', ''))) return;
+
+    line().innerHTML = '&nbsp;';
+    line('t-d').textContent = ' 配置已保存到系统配置目录。';
+    line('t-d').textContent = ' 正在监听 127.0.0.1:10808 …';
+    await sleep(reduced ? 40 : 500); if(!alive()) return;
+    var ok = line('t-ok'); ok.textContent = ' ✓ 全双工转发中：本地端口 → Socks5 → my-server.com:22';
+    ok.appendChild(caret);
+
+    await sleep(reduced ? 2500 : 3800); if(!alive()) return;
+    termBody.style.opacity = 0;
+    await sleep(reduced ? 100 : 620); if(!alive()) return;
+    runType(id);
+  }
+  runType(++runId);
+  $('#termRestart').addEventListener('click', function(){ runType(++runId); });
+})();
+</script>
+</body>
+</html>
