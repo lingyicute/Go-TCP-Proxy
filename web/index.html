@@ -588,7 +588,7 @@ window.GTP = (function(){
     <symbol id="i-book" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></g></symbol>
     <symbol id="i-spark" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3Z"/></g></symbol>
     <symbol id="i-zap" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></g></symbol>
-    <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M12 3a9 9 0 0 1 0 18z"/></symbol>
+    <symbol id="i-theme" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 0 0 0 20 1 1 0 0 0 1-1v-2.5a1.5 1.5 0 0 1 1.5-1.5H19a3 3 0 0 0 3-3A10 10 0 0 0 12 2Z"/><circle cx="7.5" cy="10.5" r="1"/><circle cx="12" cy="7.5" r="1"/><circle cx="16.5" cy="10.5" r="1"/></g></symbol>
     <symbol id="i-plug" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></g></symbol>
   </defs>
 </svg>
@@ -925,7 +925,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
         <div class="viz">
           <div class="codecard" style="margin-top:0">
             <div class="codecard-bar"><span>SSH over Socks5</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
-            <pre><code>ssh -p 10808 <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="c2b7b1a7b082f3f0f5ecf2ecf2ecf3">[email&#160;protected]</a></code></pre>
+            <pre><code>ssh -p 10808 user@127.0.0.1</code></pre>
           </div>
         </div>
       </article>
@@ -1006,8 +1006,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
 </footer>
 
 <button id="fab" data-ripple aria-label="回到顶部"><svg class="ic"><use href="#i-arrow-up"/></svg></button>
-
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script>
 (function(){
   'use strict';
   var G = window.GTP;
