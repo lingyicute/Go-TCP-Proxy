@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  check:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: go mod verify / tidy check
+        run: |
+          go mod verify
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then
+            echo "以下文件未经 gofmt 格式化："; echo "$out"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          install-go: false
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: go test
+        run: go test -race -count=1 ./...
+
+  build:
+    name: Build ${{ matrix.os }}/${{ matrix.arch }}
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux,   arch: amd64, ext: "" }
+          - { os: linux,   arch: arm64, ext: "" }
+          - { os: windows, arch: amd64, ext: ".exe" }
+          - { os: windows, arch: arm64, ext: ".exe" }
+          - { os: darwin,  arch: amd64, ext: "" }
+          - { os: darwin,  arch: arm64, ext: "" }
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build (static)
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          version="nightly-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          out="bin/tcp-proxy-${GOOS}-${GOARCH}${{ matrix.ext }}"
+          mkdir -p bin
+          go build -trimpath -ldflags="-s -w -X main.version=${version}" -o "$out" ./cmd/tcp-proxy
+          ls -la bin
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tcp-proxy-${{ matrix.os }}-${{ matrix.arch }}
+          path: bin/*
+          if-no-files-found: error
+
+  nightly:
+    name: Publish nightly release
+    # 只在默认分支的 push 上发布，PR / 其他分支只构建不发布
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: nightly-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: tcp-proxy-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum tcp-proxy-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Delete old nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete nightly --yes --cleanup-tag || true
+
+      - name: Publish nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create nightly dist/* \
+            --title "Nightly Build" \
+            --notes "auto build · ${GITHUB_SHA:0:7} · ${GITHUB_REF_NAME} · $(date -u +'%Y-%m-%d %H:%M UTC')" \
+            --prerelease \
+            --target "$GITHUB_SHA"
