@@ -63,7 +63,9 @@ func Load(path string) (Config, error) {
 }
 
 // Save 把配置写入 path，必要时创建父目录（0700）。
-// 通过 os.CreateTemp（0600）写临时文件再重命名，保证原子替换且不会以过宽的权限落盘。
+// 通过 os.CreateTemp（0600）写临时文件、fsync、再重命名，保证原子替换且不会以过宽的权限落盘：
+// 没有 fsync 的话，rename 之后、数据真正落盘之前断电，部分文件系统会留下一个空的 config.json，
+// 下次启动就会在非交互模式下因"解析配置文件失败"而拒绝启动。
 func Save(path string, cfg Config) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -86,6 +88,10 @@ func Save(path string, cfg Config) error {
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		return fmt.Errorf("写入临时文件: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("同步临时文件到磁盘: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("关闭临时文件: %w", err)
