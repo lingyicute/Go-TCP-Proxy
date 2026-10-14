@@ -9,7 +9,9 @@ import (
 	"io"
 	"log"
 	"net"
+	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,6 +38,15 @@ type Options struct {
 	DialTimeout time.Duration
 	// ShutdownTimeout 是 Shutdown 等待现有连接自然结束的时长；<= 0 使用 DefaultShutdownTimeout。
 	ShutdownTimeout time.Duration
+	// IdleTimeout 是一条会话（两个方向合计）允许的最长无数据时间，超过后整条会话被关闭；
+	// <= 0 表示不限制。
+	//
+	// 半关闭传播有一个固有的盲区：客户端"说完了"之后无论是半关闭还是彻底 Close，
+	// 本端看到的都只是 EOF，只能把 FIN 转发给远端然后等它回话。远端若既不回复也不关闭，
+	// 这条会话（连同占用的代理连接）就会一直留到远端自己超时为止。IdleTimeout 给这种
+	// 情况兜底。启用后转发改走用户态缓冲区（放弃 Linux 上的 splice 零拷贝），
+	// 以便在每次读写前刷新超时。
+	IdleTimeout time.Duration
 	// Logger 为 nil 时使用 log.Default()。
 	Logger *log.Logger
 }
@@ -63,10 +74,21 @@ type Server struct {
 type session struct {
 	client *net.TCPConn
 
+	// lastActive 是最近一次搬运到数据的时刻（UnixNano）。两个方向共用：
+	// 任一方向有数据流动，整条会话就算活跃。仅在启用 IdleTimeout 时使用。
+	lastActive atomic.Int64
+	idleLogged atomic.Bool // 两个方向可能同时判定空闲，日志只记一次
+
 	mu     sync.Mutex
 	remote *net.TCPConn // 拨号成功后设置
 	closed bool         // closeAll 已被调用
 }
+
+// touch 记录会话刚刚活跃过。
+func (ss *session) touch() { ss.lastActive.Store(time.Now().UnixNano()) }
+
+// activeAt 返回最近一次活跃的时刻。
+func (ss *session) activeAt() time.Time { return time.Unix(0, ss.lastActive.Load()) }
 
 // setRemote 记录远程连接；如果会话已经被强制关闭则返回 false，调用方应关闭 r。
 func (ss *session) setRemote(r *net.TCPConn) bool {
@@ -113,6 +135,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.ShutdownTimeout <= 0 {
 		opts.ShutdownTimeout = DefaultShutdownTimeout
+	}
+	if opts.IdleTimeout < 0 {
+		opts.IdleTimeout = 0
 	}
 	logger := opts.Logger
 	if logger == nil {
@@ -272,15 +297,16 @@ func (s *Server) handle(ss *session) {
 	}
 	s.logger.Printf("客户端 %s 已通过代理连接到 %s", peer, s.opts.RemoteAddr)
 
+	ss.touch() // 空闲计时从隧道打通开始
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		s.pipe(remote, client, "客户端 -> 远程")
+		s.pipe(ss, remote, client, "客户端 -> 远程")
 	}()
 	go func() {
 		defer wg.Done()
-		s.pipe(client, remote, "远程 -> 客户端")
+		s.pipe(ss, client, remote, "远程 -> 客户端")
 	}()
 	wg.Wait()
 
@@ -308,21 +334,87 @@ func (s *Server) dial(ctx context.Context) (*net.TCPConn, error) {
 //
 //   - src 正常 EOF：只关闭 dst 的写方向（发送 FIN），对端仍然可以把剩余的响应发回来。
 //     这是正确的 TCP 半关闭传播，而不是粗暴地 Close 掉整条连接。
-//   - 出错（对端复位、本端被强制关闭等）：这条隧道已经没救了，直接关掉两头，
-//     让另一个方向的搬运 goroutine 也能立刻从阻塞的 Read 中退出。
-func (s *Server) pipe(dst, src *net.TCPConn, direction string) {
-	_, err := io.Copy(dst, src)
+//   - 出错（对端复位、本端被强制关闭、整条会话空闲超时等）：这条隧道已经没救了，
+//     直接关掉两头，让另一个方向的搬运 goroutine 也能立刻从阻塞的 Read 中退出。
+func (s *Server) pipe(ss *session, dst, src *net.TCPConn, direction string) {
+	var err error
+	if s.opts.IdleTimeout > 0 {
+		err = copyWithIdleTimeout(ss, dst, src, s.opts.IdleTimeout)
+	} else {
+		_, err = io.Copy(dst, src) // Linux 上 dst 是 *net.TCPConn 时走 splice 零拷贝
+	}
 	if err == nil {
 		if err := dst.CloseWrite(); err != nil && !isBenignError(err) {
 			s.logger.Printf("半关闭 %s 失败: %v", dst.RemoteAddr(), err)
 		}
 		return
 	}
-	if !isBenignError(err) {
+	switch {
+	case errors.Is(err, errIdleTimeout):
+		if ss.idleLogged.CompareAndSwap(false, true) {
+			s.logger.Printf("客户端 %s 的连接已空闲超过 %v，关闭", ss.client.RemoteAddr(), s.opts.IdleTimeout)
+		}
+	case !isBenignError(err):
 		s.logger.Printf("数据流 %s (%s) 出错: %v", direction, src.RemoteAddr(), err)
 	}
 	dst.Close()
 	src.Close()
+}
+
+// errIdleTimeout 表示整条会话在 IdleTimeout 内没有任何数据流动。
+var errIdleTimeout = errors.New("会话空闲超时")
+
+// copyWithIdleTimeout 是 io.Copy 的带空闲超时版本，用的是 net.Conn 文档推荐的做法：
+// 每次读写前把 deadline 重设为 "最近活跃时刻 + idle"。
+//
+// 空闲以整条会话为单位计算——两个方向任何一方搬运了数据都会刷新 ss.lastActive，
+// 所以"客户端一直在上传而服务端一直沉默"这类单向活跃的连接不会被误杀；
+// 某个方向的 deadline 到期时，若发现会话其实刚刚活跃过（另一方向有数据），
+// 就续期重试，只有两个方向都静默超过 idle 才返回 errIdleTimeout。
+func copyWithIdleTimeout(ss *session, dst, src *net.TCPConn, idle time.Duration) error {
+	// stillActive 在 deadline 到期后判断是否只是本方向静默：是则续期重试，否则整条会话确实空闲。
+	stillActive := func(err error) bool {
+		return errors.Is(err, os.ErrDeadlineExceeded) && time.Since(ss.activeAt()) < idle
+	}
+	buf := make([]byte, 32*1024)
+	for {
+		if err := src.SetReadDeadline(ss.activeAt().Add(idle)); err != nil {
+			return err
+		}
+		n, rerr := src.Read(buf)
+		if n > 0 {
+			ss.touch()
+		}
+		// 写端同样受 idle 约束：对端 idle 时间内一个字节都没收走，也算空闲。
+		// Write 超时会返回已写入的字节数，续期后从断点继续，不会重复或丢失数据。
+		for off := 0; off < n; {
+			if err := dst.SetWriteDeadline(ss.activeAt().Add(idle)); err != nil {
+				return err
+			}
+			w, werr := dst.Write(buf[off:n])
+			off += w
+			if w > 0 {
+				ss.touch()
+			}
+			if werr == nil || stillActive(werr) {
+				continue
+			}
+			if errors.Is(werr, os.ErrDeadlineExceeded) {
+				return errIdleTimeout
+			}
+			return werr
+		}
+		switch {
+		case rerr == nil: // 继续搬下一块
+		case errors.Is(rerr, io.EOF):
+			return nil
+		case stillActive(rerr): // 只是本方向静默，续期后重试
+		case errors.Is(rerr, os.ErrDeadlineExceeded):
+			return errIdleTimeout
+		default:
+			return rerr
+		}
+	}
 }
 
 // isBenignError 判断是否为连接正常/被动关闭时产生的常规错误，这类错误不值得记录：

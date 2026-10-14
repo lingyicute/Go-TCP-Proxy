@@ -146,9 +146,12 @@ func TestParseFlags(t *testing.T) {
 		}
 	}
 
-	o, err := parseFlags([]string{"-shutdown-timeout", "1s", "-dial-timeout", "2s"})
-	if err != nil || o.shutdownTimeout != time.Second || o.dialTimeout != 2*time.Second {
+	o, err := parseFlags([]string{"-shutdown-timeout", "1s", "-dial-timeout", "2s", "-idle-timeout", "3m"})
+	if err != nil || o.shutdownTimeout != time.Second || o.dialTimeout != 2*time.Second || o.idleTimeout != 3*time.Minute {
 		t.Errorf("duration flags 解析错误: %+v err=%v", o, err)
+	}
+	if o, err := parseFlags(nil); err != nil || o.idleTimeout != 0 {
+		t.Errorf("-idle-timeout 默认应为 0（不限制）: %+v err=%v", o, err)
 	}
 	if _, err := parseFlags([]string{"-h"}); !errors.Is(err, flag.ErrHelp) {
 		t.Errorf("-h 应返回 flag.ErrHelp, 实际 %v", err)

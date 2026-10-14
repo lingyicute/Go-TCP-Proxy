@@ -661,3 +661,130 @@ func TestIsBenignError(t *testing.T) {
 		}
 	}
 }
+
+// ---------- IdleTimeout ----------
+
+// 半关闭传播的固有盲区：客户端正常 Close()（FIN，而非 RST）之后远端一直沉默，
+// 本端只能等远端回话或关闭。不启用 IdleTimeout 时这条会话会一直留着（由远端自己的
+// 超时兜底），启用后应在 idle 附近被整体关闭。
+func TestIdleTimeoutReapsSessionAfterClientCloses(t *testing.T) {
+	socks := newSocksServer(t)
+	silent := silentServer(t)
+	srv, ln := startTunnel(t, Options{RemoteAddr: silent, SocksAddr: socks.addr(), IdleTimeout: 300 * time.Millisecond})
+
+	c := dialTCP(t, ln.Addr().String())
+	c.Write([]byte("hello"))
+	waitFor(t, "连接建立", func() bool { return srv.ActiveConns() == 1 })
+	start := time.Now()
+	c.Close() // 正常 FIN；远端既不回复也不关闭
+
+	waitFor(t, "空闲会话被回收", func() bool { return srv.ActiveConns() == 0 })
+	if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
+		t.Fatalf("会话在 %v 后就被关闭，早于 IdleTimeout", elapsed)
+	}
+}
+
+// 不关闭、只是不说话的客户端同样应被回收，并且收到 EOF。
+func TestIdleTimeoutClosesQuietConnection(t *testing.T) {
+	socks := newSocksServer(t)
+	silent := silentServer(t)
+	srv, ln := startTunnel(t, Options{RemoteAddr: silent, SocksAddr: socks.addr(), IdleTimeout: 300 * time.Millisecond})
+
+	c := dialTCP(t, ln.Addr().String())
+	c.Write([]byte("hello"))
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("空闲超时后客户端应读到 EOF, 实际 err=%v", err)
+	}
+	waitFor(t, "连接计数归零", func() bool { return srv.ActiveConns() == 0 })
+}
+
+// 空闲必须按整条会话计算：客户端持续上传、服务端始终沉默时，"远程 -> 客户端"方向
+// 虽然一直没有数据，也不能把会话判成空闲。
+func TestIdleTimeoutIsPerSessionNotPerDirection(t *testing.T) {
+	socks := newSocksServer(t)
+	silent := silentServer(t)
+	srv, ln := startTunnel(t, Options{RemoteAddr: silent, SocksAddr: socks.addr(), IdleTimeout: 200 * time.Millisecond})
+
+	c := dialTCP(t, ln.Addr().String())
+	waitFor(t, "连接建立", func() bool { return srv.ActiveConns() == 1 })
+	// 持续 1s、每 50ms 写一次：远超 IdleTimeout，但会话始终有数据流动
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := c.Write([]byte("tick")); err != nil {
+			t.Fatalf("单向活跃的连接被误判为空闲: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := srv.ActiveConns(); n != 1 {
+		t.Fatalf("单向活跃期间会话应保持, 实际 ActiveConns=%d", n)
+	}
+	// 停止写入后才应被回收
+	waitFor(t, "停止活动后会话被回收", func() bool { return srv.ActiveConns() == 0 })
+}
+
+// 启用 IdleTimeout 后转发不再走 io.Copy，半关闭传播和大流量搬运必须保持正确。
+func TestIdleTimeoutPreservesHalfCloseAndData(t *testing.T) {
+	socks := newSocksServer(t)
+
+	t.Run("half-close", func(t *testing.T) {
+		sink := sinkServer(t)
+		_, ln := startTunnel(t, Options{RemoteAddr: sink, SocksAddr: socks.addr(), IdleTimeout: time.Second})
+		c := dialTCP(t, ln.Addr().String())
+		c.Write([]byte("hello"))
+		c.CloseWrite()
+		c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		got, err := io.ReadAll(c)
+		if err != nil || string(got) != "server got 5 bytes\n" {
+			t.Fatalf("半关闭后的响应丢失: %q err=%v", got, err)
+		}
+	})
+
+	t.Run("echo-150KB", func(t *testing.T) {
+		echo := echoServer(t)
+		_, ln := startTunnel(t, Options{RemoteAddr: echo, SocksAddr: socks.addr(), IdleTimeout: time.Second})
+		c := dialTCP(t, ln.Addr().String())
+		payload := strings.Repeat("hello, tunnel! ", 10000)
+		go func() {
+			c.Write([]byte(payload))
+			c.CloseWrite()
+		}()
+		c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		got, err := io.ReadAll(c)
+		if err != nil || string(got) != payload {
+			t.Fatalf("回显数据不一致: 期望 %d 字节, 实际 %d 字节, err=%v", len(payload), len(got), err)
+		}
+	})
+}
+
+// 对端一直不收数据（接收窗口满）也算空闲：写端同样受 IdleTimeout 约束，
+// 否则搬运 goroutine 会永远卡在 Write 上。
+func TestIdleTimeoutCoversStalledWrites(t *testing.T) {
+	socks := newSocksServer(t)
+	// 远端：连接建立后立刻灌 4 MB 数据，然后保持连接不动
+	ln0, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln0.Close() })
+	go func() {
+		for {
+			c, err := ln0.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				c.Write(make([]byte, 4<<20))
+				<-t.Context().Done()
+				c.Close()
+			}()
+		}
+	}()
+
+	srv, ln := startTunnel(t, Options{RemoteAddr: ln0.Addr().String(), SocksAddr: socks.addr(), IdleTimeout: 300 * time.Millisecond})
+	c := dialTCP(t, ln.Addr().String())
+	c.SetReadBuffer(4096)
+	waitFor(t, "连接建立", func() bool { return srv.ActiveConns() == 1 })
+	// 客户端一个字节都不读：代理向客户端的 Write 很快会因为窗口满而阻塞
+	waitFor(t, "写端卡住的会话被回收", func() bool { return srv.ActiveConns() == 0 })
+}

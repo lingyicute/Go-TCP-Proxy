@@ -36,6 +36,7 @@ type options struct {
 	noSave          bool
 	dialTimeout     time.Duration
 	shutdownTimeout time.Duration
+	idleTimeout     time.Duration
 	showVersion     bool
 }
 
@@ -57,6 +58,7 @@ func parseFlags(args []string) (*options, error) {
 	fs.BoolVar(&o.noSave, "no-save", false, "本次运行不把配置写回配置文件")
 	fs.DurationVar(&o.dialTimeout, "dial-timeout", tunnel.DefaultDialTimeout, "连接代理并完成 Socks5 握手的超时时间")
 	fs.DurationVar(&o.shutdownTimeout, "shutdown-timeout", tunnel.DefaultShutdownTimeout, "退出时等待现有连接结束的最长时间")
+	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0, "一条连接两个方向都没有数据流动超过该时长就关闭它（0 表示不限制）")
 	fs.BoolVar(&o.showVersion, "version", false, "显示版本号并退出")
 
 	fs.Usage = func() {
@@ -112,6 +114,7 @@ func run(args []string) error {
 		SocksAddr:       cfg.SocksAddr,
 		DialTimeout:     opts.dialTimeout,
 		ShutdownTimeout: opts.shutdownTimeout,
+		IdleTimeout:     opts.idleTimeout,
 	})
 	if err != nil {
 		return err
