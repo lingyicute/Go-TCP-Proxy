@@ -188,6 +188,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.closed = true
 	s.mu.Unlock()
+	// closed 置位后不会再有新会话、也就不会再有新的拨号：无论走优雅还是强制路径，
+	// 返回前都释放 dialCtx（强制路径下面会提前显式取消，CancelFunc 可重复调用）。
+	defer s.cancelDial()
 
 	done := make(chan struct{})
 	go func() {
