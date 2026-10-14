@@ -407,7 +407,8 @@ func TestServeSurvivesTransientAcceptErrors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fl := &flakyListener{Listener: real, failures: 3}
+	fl := &flakyListener{Listener: real}
+	fl.failures.Store(3)
 	go srv.Serve(fl)
 	t.Cleanup(func() {
 		real.Close()
@@ -424,20 +425,21 @@ func TestServeSurvivesTransientAcceptErrors(t *testing.T) {
 	if string(got) != "ping" {
 		t.Fatalf("Accept 出现临时错误后应继续服务, 实际收到 %q", got)
 	}
-	if fl.failures != 0 {
-		t.Fatalf("预期的临时错误没有全部被消费掉, 剩余 %d", fl.failures)
+	if n := fl.failures.Load(); n != 0 {
+		t.Fatalf("预期的临时错误没有全部被消费掉, 剩余 %d", n)
 	}
 }
 
 // flakyListener 在前 failures 次 Accept 调用返回临时性错误。
+// failures 在 Serve goroutine 里递减、在测试 goroutine 里读取，二者之间没有同步，用原子量。
 type flakyListener struct {
 	net.Listener
-	failures int
+	failures atomic.Int32
 }
 
 func (l *flakyListener) Accept() (net.Conn, error) {
-	if l.failures > 0 {
-		l.failures--
+	if l.failures.Load() > 0 {
+		l.failures.Add(-1)
 		return nil, &net.OpError{Op: "accept", Net: "tcp", Err: errors.New("too many open files")}
 	}
 	return l.Listener.Accept()
