@@ -67,7 +67,7 @@ go install github.com/lingyicute/Go-TCP-Proxy/cmd/tcp-proxy@latest
 
 ### 方式三：从源码构建
 
-需要 Go 1.25 或更高版本。
+需要 Go 1.26 或更高版本（以 `go.mod` 里的 `go` 指令为准；依赖的 `golang.org/x/net` 要求 1.26）。
 
 ```bash
 git clone https://github.com/lingyicute/Go-TCP-Proxy.git
