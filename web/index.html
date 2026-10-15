@@ -1172,7 +1172,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
 
     line('t-h').textContent = ' -----      Socks5 TCP 代理工具 By 梨      -----';
     line().innerHTML = '&nbsp;';
-    line('t-d').textContent = ' 请根据提示输入配置信息，直接按回车将使用上次保存的值。';
+    line('t-d').textContent = ' 请根据提示输入配置信息，直接按回车将使用方括号中的值。';
     line().innerHTML = '&nbsp;';
     await sleep(reduced ? 60 : 900); if(!alive()) return;
 
@@ -1218,18 +1218,19 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   'use strict';
   var loader = document.getElementById('loader');
   if(!loader) return;
-  var faded = false, forced = false;
+  var faded = false;
   function finish(){
-    if(faded || forced) return;
+    if(faded) return;
+    faded = true;
     loader.classList.add('done');
     loader.addEventListener('transitionend', function(){ loader.remove(); });
     // 兜底：若 transition 未触发，稍后移除
     setTimeout(function(){ if(loader.parentNode) loader.remove(); }, 900);
-    faded = true;
   }
-  function force(){ forced = true; finish(); }
-  // 安全兜底：最多等 6 秒，绝不让页面一直被遮住
-  var timer = setTimeout(force, 6000);
+  // 安全兜底：最多等 6 秒，绝不让页面一直被遮住。
+  // （之前写成 force(){ forced = true; finish(); }，而 finish 一进来就检查 forced 并返回，
+  //   于是这个兜底从来没有真正移除过覆盖层。）
+  var timer = setTimeout(finish, 6000);
   function ready(){
     clearTimeout(timer);
     var pending = [];
