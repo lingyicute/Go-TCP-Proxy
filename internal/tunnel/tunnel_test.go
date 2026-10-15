@@ -673,14 +673,16 @@ func TestIdleTimeoutReapsSessionAfterClientCloses(t *testing.T) {
 	srv, ln := startTunnel(t, Options{RemoteAddr: silent, SocksAddr: socks.addr(), IdleTimeout: 300 * time.Millisecond})
 
 	c := dialTCP(t, ln.Addr().String())
+	// 计时从最后一次有数据之前开始：会话最早也要到"hello 被搬运的时刻 + idle"才会被回收，
+	// 因此 elapsed 不可能小于 idle——这样断言不会因为 CI 机器慢而误报。
+	start := time.Now()
 	c.Write([]byte("hello"))
 	waitFor(t, "连接建立", func() bool { return srv.ActiveConns() == 1 })
-	start := time.Now()
 	c.Close() // 正常 FIN；远端既不回复也不关闭
 
 	waitFor(t, "空闲会话被回收", func() bool { return srv.ActiveConns() == 0 })
-	if elapsed := time.Since(start); elapsed < 250*time.Millisecond {
-		t.Fatalf("会话在 %v 后就被关闭，早于 IdleTimeout", elapsed)
+	if elapsed := time.Since(start); elapsed < 300*time.Millisecond {
+		t.Fatalf("会话在 %v 后就被关闭，早于 IdleTimeout：FIN 本身不应触发关闭", elapsed)
 	}
 }
 
@@ -704,12 +706,14 @@ func TestIdleTimeoutClosesQuietConnection(t *testing.T) {
 func TestIdleTimeoutIsPerSessionNotPerDirection(t *testing.T) {
 	socks := newSocksServer(t)
 	silent := silentServer(t)
-	srv, ln := startTunnel(t, Options{RemoteAddr: silent, SocksAddr: socks.addr(), IdleTimeout: 200 * time.Millisecond})
+	// idle 取写入间隔的 10 倍：-race 下的 CI 机器偶尔会把一次 50ms 的 Sleep 拖到一两百毫秒，
+	// 留足余量，避免把调度抖动误报成"被误杀"。
+	srv, ln := startTunnel(t, Options{RemoteAddr: silent, SocksAddr: socks.addr(), IdleTimeout: 500 * time.Millisecond})
 
 	c := dialTCP(t, ln.Addr().String())
 	waitFor(t, "连接建立", func() bool { return srv.ActiveConns() == 1 })
-	// 持续 1s、每 50ms 写一次：远超 IdleTimeout，但会话始终有数据流动
-	deadline := time.Now().Add(time.Second)
+	// 持续 1.2s、每 50ms 写一次：远超 IdleTimeout，但会话始终有数据流动
+	deadline := time.Now().Add(1200 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		if _, err := c.Write([]byte("tick")); err != nil {
 			t.Fatalf("单向活跃的连接被误判为空闲: %v", err)
