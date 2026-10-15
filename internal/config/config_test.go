@@ -118,6 +118,7 @@ func TestValidate(t *testing.T) {
 		{LocalAddr: ":10808", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080"},
 		{LocalAddr: "0.0.0.0:10808", RemoteAddr: "[::1]:22", SocksAddr: "proxy.local:1080"},
 		{LocalAddr: "127.0.0.1:http", RemoteAddr: "example.com:ssh", SocksAddr: "127.0.0.1:socks"},
+		{LocalAddr: "127.0.0.1:0", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080"}, // 监听端口 0 = 随机端口，合法
 	}
 	for _, c := range valid {
 		if err := c.Validate(); err != nil {
@@ -133,6 +134,8 @@ func TestValidate(t *testing.T) {
 		"remote empty host":  {LocalAddr: "127.0.0.1:1", RemoteAddr: ":80", SocksAddr: "127.0.0.1:1080"},
 		"socks empty host":   {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: ":1080"},
 		"bad port":           {LocalAddr: "127.0.0.1:99999", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
+		"remote port 0":      {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:0", SocksAddr: "127.0.0.1:1080"},
+		"socks port 0":       {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"},
 		"garbage":            {LocalAddr: "127.0.0.1:1", RemoteAddr: "http://example.com", SocksAddr: "127.0.0.1:1080"},
 	}
 	for name, c := range invalid {
