@@ -12,6 +12,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -20,8 +22,40 @@ import (
 	"github.com/lingyicute/Go-TCP-Proxy/internal/tunnel"
 )
 
-// version 由构建时通过 -ldflags "-X main.version=..." 注入。
+// version 由构建时通过 -ldflags "-X main.version=..." 注入；没有注入时 versionString 会
+// 退而使用 Go 自己嵌入二进制的构建信息。
 var version = "dev"
+
+// versionString 返回 -version 打印的内容：版本号之外还带上编译它的 Go 版本和目标平台。
+// 静态二进制把整个标准库打包在内，标准库的安全修复只能靠换工具链重新编译拿到，
+// 所以"这个二进制是哪个 Go 编的"是排查问题和判断是否该升级时最先要知道的信息。
+func versionString() string {
+	v := version
+	if v == "dev" {
+		if bi, ok := debug.ReadBuildInfo(); ok {
+			switch {
+			case bi.Main.Version != "" && bi.Main.Version != "(devel)":
+				v = bi.Main.Version // go install …@version 装出来的二进制带模块版本号
+			default:
+				var rev, dirty string
+				for _, kv := range bi.Settings {
+					switch kv.Key {
+					case "vcs.revision":
+						rev = kv.Value
+					case "vcs.modified":
+						if kv.Value == "true" {
+							dirty = "-dirty"
+						}
+					}
+				}
+				if len(rev) >= 7 { // 本地 go build 出来的二进制带 git 提交号
+					v = "dev-" + rev[:7] + dirty
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("tcp-proxy %s (%s %s/%s)", v, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+}
 
 // stdin 只创建一次并在整个进程内复用：bufio.Reader 会预读多余的字节，
 // 每次提问都新建 reader 会把管道里后续几行输入吞掉。
@@ -99,7 +133,7 @@ func run(args []string) error {
 		return err
 	}
 	if opts.showVersion {
-		fmt.Printf("tcp-proxy %s\n", version)
+		fmt.Println(versionString())
 		return nil
 	}
 
