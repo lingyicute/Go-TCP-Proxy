@@ -9,17 +9,28 @@ permissions:
   contents: read
 
 jobs:
-  # 用 go.mod 声明的最低版本跑构建与测试，保证声明的兼容性是真的。
+  # 两个工具链各跑一遍测试：
+  #   - go.mod：声明的最低版本，保证兼容性承诺是真的（setup-go 会精确安装 go 指令里的
+  #     那个补丁版本，例如 1.26.0，而不是最新的 1.26.x）；
+  #   - stable：build job 实际用来编译发布产物的版本，测试必须也在它上面跑过。
   # 注意 -race 需要 cgo，所以这里不能设置 CGO_ENABLED=0。
   test:
-    name: Test (Go from go.mod)
+    name: Test (Go ${{ matrix.go }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [go.mod, stable]
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go != 'go.mod' && matrix.go || '' }}
+          go-version-file: ${{ matrix.go == 'go.mod' && 'go.mod' || '' }}
+          check-latest: true
+
+      - run: go version
 
       - name: go mod verify / tidy check
         run: |
@@ -83,9 +94,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # 发布产物用最新稳定版工具链编译，而不是 go.mod 里的最低版本：
+      # 静态二进制把整个标准库一起打包进去了，net/os 等包的安全修复只能靠换工具链重新编译拿到。
+      # go.mod 里的 go 1.26.0 只是下限，govulncheck 在 1.26.0 的标准库上会直接报出可达的漏洞。
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: stable
+          check-latest: true
 
       - name: Build (static)
         env:
@@ -93,6 +108,7 @@ jobs:
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: "0"
         run: |
+          go version
           version="nightly-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
           out="bin/tcp-proxy-${GOOS}-${GOARCH}${{ matrix.ext }}"
           mkdir -p bin

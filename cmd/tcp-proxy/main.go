@@ -36,6 +36,7 @@ type options struct {
 	noSave          bool
 	dialTimeout     time.Duration
 	shutdownTimeout time.Duration
+	idleTimeout     time.Duration
 	showVersion     bool
 }
 
@@ -57,6 +58,7 @@ func parseFlags(args []string) (*options, error) {
 	fs.BoolVar(&o.noSave, "no-save", false, "本次运行不把配置写回配置文件")
 	fs.DurationVar(&o.dialTimeout, "dial-timeout", tunnel.DefaultDialTimeout, "连接代理并完成 Socks5 握手的超时时间")
 	fs.DurationVar(&o.shutdownTimeout, "shutdown-timeout", tunnel.DefaultShutdownTimeout, "退出时等待现有连接结束的最长时间")
+	fs.DurationVar(&o.idleTimeout, "idle-timeout", 0, "一条连接两个方向都没有数据流动超过该时长就关闭它（0 表示不限制）")
 	fs.BoolVar(&o.showVersion, "version", false, "显示版本号并退出")
 
 	fs.Usage = func() {
@@ -101,63 +103,18 @@ func run(args []string) error {
 		return nil
 	}
 
-	// 1. 定位并加载配置
-	configPath := opts.configPath
-	if configPath == "" {
-		if configPath, err = config.DefaultPath(); err != nil {
-			return err
-		}
-	}
-	interactive := !opts.yes && opts.listen == "" && opts.remote == "" && opts.socks == ""
-
-	cfg, loadErr := config.Load(configPath)
-	switch {
-	case loadErr == nil:
-		log.Printf("已从 %s 加载配置。", configPath)
-	case errors.Is(loadErr, config.ErrNotFound):
-		log.Println("未找到配置文件，将使用默认值。")
-	case interactive:
-		// 交互模式下用户会逐项确认，损坏的配置文件用默认值兜底即可。
-		log.Printf("%v，将使用默认值。", loadErr)
-	default:
-		// 非交互模式没有人能纠正错误值，直接失败比静默使用默认值更安全。
-		return loadErr
-	}
-
-	// 2. 命令行参数覆盖配置文件
-	if opts.listen != "" {
-		cfg.LocalAddr = opts.listen
-	}
-	if opts.remote != "" {
-		cfg.RemoteAddr = opts.remote
-	}
-	if opts.socks != "" {
-		cfg.SocksAddr = opts.socks
-	}
-
-	// 3. 交互式确认
-	if interactive {
-		printBanner()
-		cfg.LocalAddr = promptAddr(stdin, " 请输入本地监听地址和端口", cfg.LocalAddr, config.ValidateListenAddr)
-		cfg.RemoteAddr = promptAddr(stdin, " 请输入远程目标服务地址和端口", cfg.RemoteAddr, config.ValidateDialAddr)
-		cfg.SocksAddr = promptAddr(stdin, " 请输入 Socks5 代理地址和端口", cfg.SocksAddr, config.ValidateDialAddr)
-		fmt.Println()
-	} else if errors.Is(loadErr, config.ErrNotFound) && opts.remote == "" {
-		// 默认的 example.com:80 只是占位符，非交互模式下不应被静默采用。
-		return errors.New("未找到配置文件，非交互模式下必须通过 -r 指定远程目标地址")
-	}
-
-	// 4. 校验
-	if err := cfg.Validate(); err != nil {
+	cfg, configPath, err := resolveConfig(opts)
+	if err != nil {
 		return err
 	}
 
-	// 5. 先启动监听，成功之后再把配置落盘——避免把错误的地址记成下次的默认值
+	// 先启动监听，成功之后再把配置落盘——避免把错误的地址记成下次的默认值
 	srv, err := tunnel.New(tunnel.Options{
 		RemoteAddr:      cfg.RemoteAddr,
 		SocksAddr:       cfg.SocksAddr,
 		DialTimeout:     opts.dialTimeout,
 		ShutdownTimeout: opts.shutdownTimeout,
+		IdleTimeout:     opts.idleTimeout,
 	})
 	if err != nil {
 		return err
@@ -168,7 +125,7 @@ func run(args []string) error {
 	}
 	defer ln.Close()
 
-	if !opts.noSave {
+	if !opts.noSave && configPath != "" {
 		if err := config.Save(configPath, cfg); err != nil {
 			log.Printf("警告：%v", err)
 		} else {
@@ -217,6 +174,82 @@ func run(args []string) error {
 	}
 	log.Println("服务已退出。")
 	return nil
+}
+
+// resolveConfig 完成配置的定位、加载、命令行覆盖、交互式确认与校验，
+// 返回最终配置以及监听成功后应写回的路径；路径为空表示本次没有可用的配置文件。
+func resolveConfig(opts *options) (config.Config, string, error) {
+	interactive := !opts.yes && opts.listen == "" && opts.remote == "" && opts.socks == ""
+
+	// 1. 定位配置文件
+	configPath := opts.configPath
+	if configPath == "" {
+		var err error
+		if configPath, err = config.DefaultPath(); err != nil {
+			// 拿不到用户配置目录（典型场景：FROM scratch 的容器、DynamicUser 的 systemd 服务，
+			// 里面没有 $HOME / %AppData%）并不致命：本次运行不读也不写配置文件，
+			// 地址全部来自命令行或交互输入即可。之前这里直接报错退出，
+			// 导致 `-l/-r/-s --no-save` 这种完全不需要配置文件的用法也无法启动。
+			log.Printf("警告：%v，本次不读写配置文件。", err)
+			configPath = ""
+		}
+	}
+
+	// 2. 加载
+	cfg, loadErr := config.Defaults, config.ErrNotFound
+	if configPath != "" {
+		cfg, loadErr = config.Load(configPath)
+	}
+	switch {
+	case loadErr == nil:
+		log.Printf("已从 %s 加载配置。", configPath)
+	case errors.Is(loadErr, config.ErrNotFound):
+		if configPath != "" {
+			log.Println("未找到配置文件，将使用默认值。")
+		}
+	case interactive:
+		// 交互模式下用户会逐项确认，损坏的配置文件用默认值兜底即可。
+		log.Printf("%v，将使用默认值。", loadErr)
+	default:
+		// 非交互模式没有人能纠正错误值，直接失败比静默使用默认值更安全。
+		return cfg, "", loadErr
+	}
+
+	// 3. 命令行参数覆盖配置文件
+	if opts.listen != "" {
+		cfg.LocalAddr = opts.listen
+	}
+	if opts.remote != "" {
+		cfg.RemoteAddr = opts.remote
+	}
+	if opts.socks != "" {
+		cfg.SocksAddr = opts.socks
+	}
+
+	// 4. 交互式确认
+	if interactive {
+		printBanner()
+		cfg.LocalAddr = promptAddr(stdin, " 请输入本地监听地址和端口", cfg.LocalAddr, config.ValidateListenAddr)
+		cfg.RemoteAddr = promptAddr(stdin, " 请输入远程目标服务地址和端口", cfg.RemoteAddr, config.ValidateDialAddr)
+		cfg.SocksAddr = promptAddr(stdin, " 请输入 Socks5 代理地址和端口", cfg.SocksAddr, config.ValidateDialAddr)
+		fmt.Println()
+		if stdinEOF && errors.Is(loadErr, config.ErrNotFound) && cfg.RemoteAddr == config.Defaults.RemoteAddr {
+			// 标准输入已经结束（没有 TTY 的容器 / 服务），又没有保存过的配置可以沿用：
+			// 此时"默认值"只剩占位符 example.com:80。之前这里会静默地把流量转发到
+			// example.com:80，并且把它写进配置文件变成以后的默认值。
+			return cfg, "", errors.New("标准输入已结束且未找到配置文件，无法确定远程目标地址；" +
+				"请通过 -r 指定（非交互场景建议使用 -y 或 -l/-r/-s 参数）")
+		}
+	} else if errors.Is(loadErr, config.ErrNotFound) && opts.remote == "" {
+		// 默认的 example.com:80 只是占位符，非交互模式下不应被静默采用。
+		return cfg, "", errors.New("未找到配置文件，非交互模式下必须通过 -r 指定远程目标地址")
+	}
+
+	// 5. 校验
+	if err := cfg.Validate(); err != nil {
+		return cfg, "", err
+	}
+	return cfg, configPath, nil
 }
 
 func printBanner() {

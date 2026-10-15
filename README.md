@@ -67,7 +67,7 @@ go install github.com/lingyicute/Go-TCP-Proxy/cmd/tcp-proxy@latest
 
 ### 方式三：从源码构建
 
-需要 Go 1.25 或更高版本。
+需要 Go 1.26 或更高版本（以 `go.mod` 里的 `go` 指令为准；依赖的 `golang.org/x/net` 要求 1.26）。
 
 ```bash
 git clone https://github.com/lingyicute/Go-TCP-Proxy.git
@@ -186,6 +186,12 @@ Socks5 代理需要客户端"会说 Socks5 协议"才能使用；Go-TCP-Proxy �
 连接正常关闭产生的错误（`use of closed network connection`、`connection reset by peer`、`broken pipe` 等）已经被过滤掉，不会打印。如果看到其它错误信息，通常说明对端异常断开或代理不可达，一般不影响后续新连接。
 
 连接代理和 Socks5 握手默认有 10 秒超时（`-dial-timeout` 可调），代理无响应时不会让连接永远挂着。
+
+### Q：客户端早就断开了，日志里的连接却一直没有"已关闭"？
+
+这是半关闭传播的固有盲区：客户端"说完了"之后无论是半关闭还是彻底断开，Go-TCP-Proxy 看到的都只是 EOF，只能把 FIN 转发给远端、然后等远端回话或关闭。远端若既不回复也不关闭（例如在等客户端继续发数据的服务），这条连接连同它占用的代理连接就会一直留到远端自己超时为止。
+
+如果你的场景里远端可能长时间沉默，可以加上 `-idle-timeout`，例如 `-idle-timeout 10m`：一条连接**两个方向都**没有数据流动超过这个时长，就会被整体关闭。注意它按整条连接计算——只要有一个方向在传数据就不算空闲，所以单向的长时间上传/下载不会被误杀；但像 SSH 这种会长时间完全静默的会话，要么把它设得比会话最长的空闲时间更长，要么在 SSH 里开 `ServerAliveInterval`。默认 `0`（不限制），因为启用后转发会改走用户态缓冲区（放弃 Linux 上的 splice 零拷贝），而且也不是每个场景都需要。
 
 ### Q：提示"当前监听在非回环地址"是什么意思？
 
