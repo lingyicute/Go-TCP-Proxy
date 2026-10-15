@@ -875,7 +875,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o tcp-proxy ./cmd/tcp-proxy</
         <div class="step-no">2</div>
         <div class="step-body">
           <h3><svg class="ic"><use href="#i-terminal"/></svg>启动它</h3>
-          <p>运行二进制，回答它的三个问题（每个问题都有默认值，直接回车即可），服务就启动了。</p>
+          <p>运行二进制，回答它的三个地址问题（都有默认值，直接回车即可；代理需要认证时再输入一次用户名和密码），服务就启动了。</p>
           <div class="codecard">
             <div class="codecard-bar"><span>运行</span><button class="ccopy" data-ripple><svg class="ic"><use href="#i-copy"/></svg>复制</button></div>
             <pre><code>./tcp-proxy          <span class="c-d"># Linux / macOS</span>
@@ -901,9 +901,10 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
             <tr><td>本地监听地址</td><td><code>local_addr</code></td><td><code>127.0.0.1:10808</code></td></tr>
             <tr><td>远程目标地址</td><td><code>remote_addr</code></td><td><code>example.com:80</code></td></tr>
             <tr><td>Socks5 代理</td><td><code>socks_addr</code></td><td><code>127.0.0.1:1080</code></td></tr>
+            <tr><td>Socks5 用户名 / 密码</td><td><code>socks_user</code> / <code>socks_password</code></td><td>（空，不认证）</td></tr>
           </tbody>
         </table>
-        <p style="margin-top:14px;font-size:13px;color:var(--on-surface-variant)">远程目标支持域名或 IP；Socks5 代理暂不支持用户名密码认证。</p>
+        <p style="margin-top:14px;font-size:13px;color:var(--on-surface-variant)">远程目标支持域名或 IP；代理需要认证时填写用户名和密码，密码也可以用环境变量 <code class="inline-code">TCP_PROXY_SOCKS_PASSWORD</code> 传入。</p>
       </div>
       <div class="panel reveal">
         <h3><svg class="ic"><use href="#i-book"/></svg>config.json 长这样</h3>
@@ -978,7 +979,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
       </div>
       <div class="acc reveal">
         <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>Socks5 代理需要用户名和密码怎么办？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
-        <div class="acc-body"><div class="acc-inner"><p>目前版本使用的是无认证的 Socks5 拨号器，暂时不支持账号密码认证 —— 欢迎 Pull Request！</p></div></div>
+        <div class="acc-body"><div class="acc-inner"><p>支持 RFC 1929 的用户名/密码认证：交互模式下在"是否需要用户名/密码认证"回答 y，然后输入用户名和密码（密码不回显）；非交互模式用 <code class="inline-code">-socks-user</code> 配合 <code class="inline-code">-socks-password</code> 或环境变量 <code class="inline-code">TCP_PROXY_SOCKS_PASSWORD</code>。凭据会随配置保存在 config.json（0600）里，不想落盘就加 <code class="inline-code">--no-save</code>；换成不需要认证的代理后，残留的凭据不会被发送。</p></div></div>
       </div>
       <div class="acc reveal">
         <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>启动时提示「无法监听本地端口」？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
@@ -1196,6 +1197,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     if(!(await ask(' 请输入本地监听地址和端口 [127.0.0.1:10808]: ', ''))) return;
     if(!(await ask(' 请输入远程目标服务地址和端口 [example.com:80]: ', 'my-server.com:22'))) return;
     if(!(await ask(' 请输入 Socks5 代理地址和端口 [127.0.0.1:1080]: ', ''))) return;
+    if(!(await ask(' Socks5 代理是否需要用户名/密码认证？[y/N]: ', ''))) return;
 
     line().innerHTML = '&nbsp;';
     line('t-d').textContent = ' 配置已保存到系统配置目录。';
