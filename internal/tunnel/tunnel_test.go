@@ -757,34 +757,70 @@ func TestIdleTimeoutPreservesHalfCloseAndData(t *testing.T) {
 	})
 }
 
-// 对端一直不收数据（接收窗口满）也算空闲：写端同样受 IdleTimeout 约束，
-// 否则搬运 goroutine 会永远卡在 Write 上。
-func TestIdleTimeoutCoversStalledWrites(t *testing.T) {
-	socks := newSocksServer(t)
-	// 远端：连接建立后立刻灌 4 MB 数据，然后保持连接不动
-	ln0, err := net.Listen("tcp", "127.0.0.1:0")
+// floodServer 连接建立后不停地写，直到连接被关闭，模拟一个只管往外推数据的远端。
+func floodServer(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ln0.Close() })
+	t.Cleanup(func() { ln.Close() })
 	go func() {
 		for {
-			c, err := ln0.Accept()
+			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
 			go func() {
-				c.Write(make([]byte, 4<<20))
-				<-t.Context().Done()
-				c.Close()
+				defer c.Close()
+				context.AfterFunc(t.Context(), func() { c.Close() })
+				buf := make([]byte, 64<<10)
+				for {
+					if _, err := c.Write(buf); err != nil {
+						return
+					}
+				}
 			}()
 		}
 	}()
+	return ln.Addr().String()
+}
 
-	srv, ln := startTunnel(t, Options{RemoteAddr: ln0.Addr().String(), SocksAddr: socks.addr(), IdleTimeout: 300 * time.Millisecond})
+// 对端一直不收数据（接收窗口满）也算空闲：写端同样受 IdleTimeout 约束。
+//
+// 这个场景必须由写端的 deadline 兜底：客户端先半关闭，"客户端 -> 远程"方向正常结束退出，
+// 之后整条会话只剩"远程 -> 客户端"这一个 goroutine，而它卡在 Write 上——没有任何一方在
+// Read，读端的 deadline 帮不上忙。（如果客户端不半关闭，"客户端 -> 远程"方向的读超时会先
+// 把会话收掉，测不到写端。）远端用无限流而不是固定大小的数据，是为了保证 Write 一定会
+// 因为缓冲区满而阻塞：loopback 上内核的收发缓冲区能吞下好几 MB。
+func TestIdleTimeoutCoversStalledWrites(t *testing.T) {
+	socks := newSocksServer(t)
+	flood := floodServer(t)
+	srv, ln := startTunnel(t, Options{RemoteAddr: flood, SocksAddr: socks.addr(), IdleTimeout: 300 * time.Millisecond})
+
 	c := dialTCP(t, ln.Addr().String())
-	c.SetReadBuffer(4096)
 	waitFor(t, "连接建立", func() bool { return srv.ActiveConns() == 1 })
-	// 客户端一个字节都不读：代理向客户端的 Write 很快会因为窗口满而阻塞
+	if err := c.CloseWrite(); err != nil { // 客户端说完了；之后一个字节都不读
+		t.Fatal(err)
+	}
+	// 写超时后若有部分写入会续期一次，所以最坏要 2 个 idle 才会判定空闲；waitFor 给了 3s。
 	waitFor(t, "写端卡住的会话被回收", func() bool { return srv.ActiveConns() == 0 })
+	c.SetReadDeadline(time.Now().Add(time.Second))
+	if _, err := io.Copy(io.Discard, c); err != nil && !isBenignError(err) {
+		t.Fatalf("会话被回收后客户端应读到 EOF 或连接复位, 实际 %v", err)
+	}
+}
+
+// 空闲计时必须用单调时钟：墙上时钟（time.Now().UnixNano()、time.Unix(0, n)）会随 NTP 校时、
+// 休眠唤醒、手动改时间而跳变。带单调读数的 time.Time 在 String() 里会多出 " m=±…" 一段，
+// 这是标准库暴露该信息的唯一途径。
+func TestSessionActiveAtIsMonotonic(t *testing.T) {
+	ss := &session{start: time.Now()}
+	ss.touch()
+	if got := ss.activeAt().String(); !strings.Contains(got, " m=") {
+		t.Fatalf("activeAt() 应带单调时钟读数, 实际 %s", got)
+	}
+	if d := time.Since(ss.activeAt()); d < 0 || d > time.Second {
+		t.Fatalf("activeAt() 应约等于现在, 实际相差 %v", d)
+	}
 }

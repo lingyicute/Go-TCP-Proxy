@@ -74,10 +74,15 @@ type Server struct {
 type session struct {
 	client *net.TCPConn
 
-	// lastActive 是最近一次搬运到数据的时刻（UnixNano）。两个方向共用：
-	// 任一方向有数据流动，整条会话就算活跃。仅在启用 IdleTimeout 时使用。
-	lastActive atomic.Int64
-	idleLogged atomic.Bool // 两个方向可能同时判定空闲，日志只记一次
+	// 空闲计时，仅在启用 IdleTimeout 时使用。两个方向共用：任一方向有数据流动，整条会话就算活跃。
+	//
+	// lastActive 存的是"自 start 起经过的单调时钟时长"，而不是 time.Now().UnixNano() 这样的
+	// 墙上时钟：墙上时钟会被 NTP 校时、休眠唤醒、手动改时间改变，往前跳会让刚刚还活跃的会话
+	// 被误判为空闲，往后跳会让空闲会话多活一段时间。start 带有单调时钟读数，start.Add(d) 得到的
+	// 时刻也带，time.Since 与 SetDeadline 对这类时刻用的都是单调时钟，与墙上时钟的跳变无关。
+	start      time.Time
+	lastActive atomic.Int64 // 自 start 起的纳秒数（单调时钟）
+	idleLogged atomic.Bool  // 两个方向可能同时判定空闲，日志只记一次
 
 	mu     sync.Mutex
 	remote *net.TCPConn // 拨号成功后设置
@@ -85,10 +90,10 @@ type session struct {
 }
 
 // touch 记录会话刚刚活跃过。
-func (ss *session) touch() { ss.lastActive.Store(time.Now().UnixNano()) }
+func (ss *session) touch() { ss.lastActive.Store(int64(time.Since(ss.start))) }
 
-// activeAt 返回最近一次活跃的时刻。
-func (ss *session) activeAt() time.Time { return time.Unix(0, ss.lastActive.Load()) }
+// activeAt 返回最近一次活跃的时刻（带单调时钟读数）。
+func (ss *session) activeAt() time.Time { return ss.start.Add(time.Duration(ss.lastActive.Load())) }
 
 // setRemote 记录远程连接；如果会话已经被强制关闭则返回 false，调用方应关闭 r。
 func (ss *session) setRemote(r *net.TCPConn) bool {
@@ -261,7 +266,7 @@ func (s *Server) track(c *net.TCPConn) (*session, bool) {
 	if s.closed {
 		return nil, false
 	}
-	ss := &session{client: c}
+	ss := &session{client: c, start: time.Now()}
 	s.sessions[ss] = struct{}{}
 	s.wg.Add(1)
 	return ss, true
