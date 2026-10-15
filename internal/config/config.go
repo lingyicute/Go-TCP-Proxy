@@ -131,13 +131,13 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ValidateListenAddr 校验监听地址；允许省略 host（如 ":10808"）。
+// ValidateListenAddr 校验监听地址；允许省略 host（如 ":10808"），也允许端口为 0（由系统随机分配）。
 func ValidateListenAddr(addr string) error { return validateAddr(addr, true) }
 
-// ValidateDialAddr 校验用于主动连接的地址；host 与 port 都不能为空。
+// ValidateDialAddr 校验用于主动连接的地址；host 与 port 都不能为空，端口也不能是 0。
 func ValidateDialAddr(addr string) error { return validateAddr(addr, false) }
 
-func validateAddr(addr string, allowEmptyHost bool) error {
+func validateAddr(addr string, listen bool) error {
 	if addr == "" {
 		return errors.New("不能为空")
 	}
@@ -145,14 +145,20 @@ func validateAddr(addr string, allowEmptyHost bool) error {
 	if err != nil {
 		return fmt.Errorf("%q 不是合法的 host:port: %w", addr, err)
 	}
-	if host == "" && !allowEmptyHost {
+	if host == "" && !listen {
 		return fmt.Errorf("%q 缺少主机名", addr)
 	}
 	if port == "" {
 		return fmt.Errorf("%q 缺少端口", addr)
 	}
-	if _, err := net.LookupPort("tcp", port); err != nil {
+	n, err := net.LookupPort("tcp", port)
+	if err != nil {
 		return fmt.Errorf("%q 端口无效: %w", addr, err)
+	}
+	// 监听端口 0 表示让系统随机分配；但谁也连不上端口 0，用作目标/代理地址只会让
+	// 之后每一条连接都失败，不如在这里就拦下来。
+	if n == 0 && !listen {
+		return fmt.Errorf("%q 端口不能为 0", addr)
 	}
 	return nil
 }
