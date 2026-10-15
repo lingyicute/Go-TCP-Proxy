@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +156,18 @@ func TestParseFlags(t *testing.T) {
 	}
 	if _, err := parseFlags([]string{"-h"}); !errors.Is(err, flag.ErrHelp) {
 		t.Errorf("-h 应返回 flag.ErrHelp, 实际 %v", err)
+	}
+}
+
+func TestVersionString(t *testing.T) {
+	got := versionString()
+	for _, want := range []string{"tcp-proxy ", runtime.Version(), runtime.GOOS + "/" + runtime.GOARCH} {
+		if !strings.Contains(got, want) {
+			t.Errorf("versionString() = %q, 应包含 %q", got, want)
+		}
+	}
+	if strings.Contains(got, "tcp-proxy (devel)") {
+		t.Errorf("versionString() = %q, 不应原样输出 (devel)", got)
 	}
 }
 
