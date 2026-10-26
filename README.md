@@ -99,8 +99,10 @@ tcp-proxy.exe        # Windows
  请输入远程目标服务地址和端口 [example.com:80]:
 
  请输入 Socks5 代理地址和端口 [127.0.0.1:1080]:
+
+ Socks5 代理是否需要用户名/密码认证？[y/N]:
 ```
-回答完三个问题，服务就启动啦。之后让你的程序去连 `127.0.0.1:10808` 就好。
+回答完这几个问题，服务就启动啦。之后让你的程序去连 `127.0.0.1:10808` 就好。代理需要认证的话，在最后一个问题回答 `y`，再输入用户名和密码（密码不会显示在屏幕上）。
 
 ### 非交互运行（脚本 / systemd / Docker）
 
@@ -116,6 +118,9 @@ tcp-proxy -l 127.0.0.1:10808 -r db.internal:5432 -s 127.0.0.1:1080 --no-save
 # 直接使用上次保存的配置
 tcp-proxy -y
 
+# 代理需要用户名/密码：密码建议用环境变量传，命令行参数会出现在 ps / 任务管理器里
+TCP_PROXY_SOCKS_PASSWORD='s3cret' tcp-proxy -y -socks-user alice
+
 # 多开实例时给每个实例单独的配置文件
 tcp-proxy -c ~/.config/go-proxy-tunnel/ssh.json -r your-server:22
 ```
@@ -128,7 +133,9 @@ tcp-proxy -c ~/.config/go-proxy-tunnel/ssh.json -r your-server:22
 | --- | --- | --- | --- |
 | 本地监听地址 | `local_addr` | `127.0.0.1:10808` | Go-TCP-Proxy 在本机监听的地址和端口 |
 | 远程目标地址 | `remote_addr` | `example.com:80` | 你真正想连接的服务，支持域名或 IP |
-| Socks5 代理地址 | `socks_addr` | `127.0.0.1:1080` | 中间经过的 Socks5 代理（暂不支持用户名密码认证） |
+| Socks5 代理地址 | `socks_addr` | `127.0.0.1:1080` | 中间经过的 Socks5 代理 |
+| Socks5 用户名 | `socks_user` | （空） | 代理需要用户名/密码认证时填写，留空表示不认证 |
+| Socks5 密码 | `socks_password` | （空） | 也可以用命令行参数 `-socks-password` 或环境变量 `TCP_PROXY_SOCKS_PASSWORD` 提供，优先级：参数 > 环境变量 > 配置文件 |
 
 命令行参数的优先级高于配置文件。只有在监听成功之后配置才会被写回文件——输错的地址不会变成下次的默认值。
 
@@ -140,7 +147,7 @@ tcp-proxy -c ~/.config/go-proxy-tunnel/ssh.json -r your-server:22
 | macOS | `~/Library/Application Support/go-proxy-tunnel/config.json` |
 | Windows | `%AppData%\go-proxy-tunnel\config.json` |
 
-文件内容长这样，你也可以直接手动编辑（缺少的字段会自动使用默认值）：
+文件内容长这样，你也可以直接手动编辑（缺少的字段会自动使用默认值；需要认证时再加上 `socks_user` / `socks_password` 两个字段）：
 
 ```json
 {
@@ -171,7 +178,13 @@ Socks5 代理需要客户端"会说 Socks5 协议"才能使用；Go-TCP-Proxy �
 
 ### Q：Socks5 代理需要用户名和密码怎么办？
 
-目前版本使用的是无认证的 Socks5 拨号器，暂时不支持账号密码认证。欢迎 Pull Request 呀！
+支持 RFC 1929 的用户名/密码认证。交互模式下在"是否需要用户名/密码认证"回答 `y`，然后输入用户名和密码；非交互模式用 `-socks-user` 加上 `-socks-password`（或环境变量 `TCP_PROXY_SOCKS_PASSWORD`）。配置了凭据之后，日志里若出现"代理拒绝了配置的用户名/密码"就是账号密码不对；没配置凭据却看到"代理要求用户名/密码认证"，说明这个代理需要认证。
+
+几点需要知道的：
+
+- 凭据会和地址一起保存在 `config.json` 里（明文，文件权限 `0600`，和 `.netrc`、`.pgpass` 的做法一样）。不想落盘就加 `--no-save`。
+- 命令行参数对同一台机器上的其他用户可见（`ps`、任务管理器），所以密码优先用交互输入或环境变量。
+- 配置了凭据时，客户端会同时提供"无认证"和"用户名/密码"两种方式，由代理选择：换成不需要认证的代理后，残留的凭据不会被发送，也不会导致失败。交互模式下回答 `n` 即可清除保存的凭据。
 
 ### Q：启动时提示"无法监听本地端口"？
 
