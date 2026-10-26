@@ -22,7 +22,16 @@ type Config struct {
 	LocalAddr  string `json:"local_addr"`
 	RemoteAddr string `json:"remote_addr"`
 	SocksAddr  string `json:"socks_addr"`
+	// SocksUser / SocksPassword 是 Socks5 用户名/密码认证（RFC 1929）的凭据，
+	// SocksUser 为空表示代理不需要认证。两个字段都是 omitempty：
+	// 不用认证时写出的配置文件和以前一模一样，老版本也能原样读回。
+	SocksUser     string `json:"socks_user,omitempty"`
+	SocksPassword string `json:"socks_password,omitempty"`
 }
+
+// MaxSocksCredentialLen 是 RFC 1929 允许的用户名 / 密码最大长度：
+// 报文里各用 1 个字节表示长度，按字节计，不是按字符计。
+const MaxSocksCredentialLen = 255
 
 // Defaults 是出厂默认值。
 var Defaults = Config{
@@ -115,7 +124,7 @@ func (c *Config) FillDefaults() {
 	}
 }
 
-// Validate 检查三个地址都是合法的 host:port。
+// Validate 检查三个地址都是合法的 host:port，以及认证凭据是否自洽。
 // 本地监听地址允许 host 为空（等价于监听所有接口，例如 ":10808"），
 // 但远程目标与代理地址必须有 host。
 func (c Config) Validate() error {
@@ -127,6 +136,30 @@ func (c Config) Validate() error {
 	}
 	if err := ValidateDialAddr(c.SocksAddr); err != nil {
 		return fmt.Errorf("Socks5 代理地址无效: %w", err)
+	}
+	if c.SocksUser == "" {
+		if c.SocksPassword != "" {
+			return errors.New("设置了 Socks5 代理密码却没有用户名")
+		}
+		return nil
+	}
+	if err := ValidateSocksUser(c.SocksUser); err != nil {
+		return fmt.Errorf("Socks5 代理用户名无效: %w", err)
+	}
+	if len(c.SocksPassword) > MaxSocksCredentialLen {
+		return fmt.Errorf("Socks5 代理密码无效: 长度 %d 字节，超过 RFC 1929 允许的 %d 字节", len(c.SocksPassword), MaxSocksCredentialLen)
+	}
+	return nil
+}
+
+// ValidateSocksUser 校验 Socks5 用户名：非空且不超过 255 字节。
+// 密码允许为空（RFC 1929 的报文格式允许，x/net 也接受），所以没有对应的校验函数。
+func ValidateSocksUser(user string) error {
+	if user == "" {
+		return errors.New("不能为空")
+	}
+	if len(user) > MaxSocksCredentialLen {
+		return fmt.Errorf("长度 %d 字节，超过 RFC 1929 允许的 %d 字节", len(user), MaxSocksCredentialLen)
 	}
 	return nil
 }

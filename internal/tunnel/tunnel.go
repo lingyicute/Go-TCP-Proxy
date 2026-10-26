@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -34,6 +35,11 @@ type Options struct {
 	RemoteAddr string
 	// SocksAddr 是 SOCKS5 代理地址（host:port）。
 	SocksAddr string
+	// SocksUser / SocksPassword 是用户名/密码认证（RFC 1929）的凭据；SocksUser 为空表示不认证。
+	// 两者按字节原样放进握手报文，各不能超过 255 字节。配置了凭据时客户端会同时提供
+	// "无认证"和"用户名/密码"两种方式，由代理选择：代理不要求认证时凭据不会被发送。
+	SocksUser     string
+	SocksPassword string
 	// DialTimeout 限制"连接代理 + SOCKS5 握手"的总耗时；<= 0 使用 DefaultDialTimeout。
 	DialTimeout time.Duration
 	// ShutdownTimeout 是 Shutdown 等待现有连接自然结束的时长；<= 0 使用 DefaultShutdownTimeout。
@@ -149,7 +155,19 @@ func New(opts Options) (*Server, error) {
 		logger = log.Default()
 	}
 
-	d, err := proxy.SOCKS5("tcp", opts.SocksAddr, nil, proxy.Direct)
+	var auth *proxy.Auth
+	if opts.SocksUser != "" || opts.SocksPassword != "" {
+		switch {
+		case opts.SocksUser == "":
+			return nil, errors.New("设置了 Socks5 代理密码却没有用户名")
+		case len(opts.SocksUser) > 255 || len(opts.SocksPassword) > 255:
+			// RFC 1929 用 1 个字节表示长度；x/net 对超长凭据会在每次握手时报
+			// "invalid username/password"，不如在启动时就拒绝。
+			return nil, errors.New("Socks5 代理用户名和密码都不能超过 255 字节")
+		}
+		auth = &proxy.Auth{User: opts.SocksUser, Password: opts.SocksPassword}
+	}
+	d, err := proxy.SOCKS5("tcp", opts.SocksAddr, auth, proxy.Direct)
 	if err != nil {
 		return nil, fmt.Errorf("创建 Socks5 拨号器失败: %w", err)
 	}
@@ -291,7 +309,7 @@ func (s *Server) handle(ss *session) {
 	cancel()
 	if err != nil {
 		if s.dialCtx.Err() == nil { // 因强制停机而中断的拨号不算错误
-			s.logger.Printf("错误：通过代理连接 %s 失败: %v", s.opts.RemoteAddr, err)
+			s.logger.Printf("错误：通过代理连接 %s 失败: %v%s", s.opts.RemoteAddr, err, s.dialErrorHint(err))
 		}
 		return
 	}
@@ -316,6 +334,22 @@ func (s *Server) handle(ss *session) {
 	wg.Wait()
 
 	s.logger.Printf("客户端 %s 的连接已关闭", peer)
+}
+
+// dialErrorHint 把 x/net 返回的几种认证相关错误翻译成用户能直接行动的提示。
+// 匹配的是 x/net 的错误文本（没有导出的哨兵错误可用），匹配不上时返回空串，不影响原始错误的输出。
+func (s *Server) dialErrorHint(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "no acceptable authentication methods"):
+		if s.opts.SocksUser == "" {
+			return "（代理要求用户名/密码认证，但当前没有配置凭据）"
+		}
+		return "（代理既不接受无认证也不接受用户名/密码认证）"
+	case strings.Contains(msg, "username/password authentication failed"):
+		return "（代理拒绝了配置的用户名/密码，请检查凭据）"
+	}
+	return ""
 }
 
 // dial 自己建立到代理的 TCP 连接，再委托 x/net 完成 SOCKS5 握手。

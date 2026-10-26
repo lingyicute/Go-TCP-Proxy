@@ -97,6 +97,42 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// 不需要认证时，写出的文件不应出现 socks_user / socks_password 字段（与旧版本保持一致）；
+// 需要认证时两个字段都要能原样往返。
+func TestSaveAndLoad_SocksCredentials(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := Save(path, Defaults); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "socks_user") || strings.Contains(string(data), "socks_password") {
+		t.Errorf("不使用认证时不应写出凭据字段:\n%s", data)
+	}
+
+	want := Defaults
+	want.SocksUser, want.SocksPassword = "alice", "p@ss word 密码"
+	if err := Save(path, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("凭据往返不一致: 期望 %+v, 实际 %+v", want, got)
+	}
+
+	// 老版本写出的文件（没有凭据字段）读进来就是"不认证"
+	os.WriteFile(path, []byte(`{"local_addr":"127.0.0.1:1","remote_addr":"a:2","socks_addr":"b:3"}`), 0o600)
+	got, err = Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SocksUser != "" || got.SocksPassword != "" {
+		t.Errorf("旧格式配置不应带出凭据: %+v", got)
+	}
+}
+
 func TestSave_OverwritesExisting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := Save(path, Defaults); err != nil {
@@ -119,6 +155,9 @@ func TestValidate(t *testing.T) {
 		{LocalAddr: "0.0.0.0:10808", RemoteAddr: "[::1]:22", SocksAddr: "proxy.local:1080"},
 		{LocalAddr: "127.0.0.1:http", RemoteAddr: "example.com:ssh", SocksAddr: "127.0.0.1:socks"},
 		{LocalAddr: "127.0.0.1:0", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080"}, // 监听端口 0 = 随机端口，合法
+		{LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080", SocksUser: "alice", SocksPassword: "secret"},
+		{LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080", SocksUser: "alice"}, // 空密码合法
+		{LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("u", 255), SocksPassword: strings.Repeat("p", 255)},
 	}
 	for _, c := range valid {
 		if err := c.Validate(); err != nil {
@@ -127,16 +166,20 @@ func TestValidate(t *testing.T) {
 	}
 
 	invalid := map[string]Config{
-		"empty local":        {LocalAddr: "", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
-		"empty remote":       {LocalAddr: "127.0.0.1:1", RemoteAddr: "", SocksAddr: "127.0.0.1:1080"},
-		"empty socks":        {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: ""},
-		"local without port": {LocalAddr: "127.0.0.1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
-		"remote empty host":  {LocalAddr: "127.0.0.1:1", RemoteAddr: ":80", SocksAddr: "127.0.0.1:1080"},
-		"socks empty host":   {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: ":1080"},
-		"bad port":           {LocalAddr: "127.0.0.1:99999", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
-		"remote port 0":      {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:0", SocksAddr: "127.0.0.1:1080"},
-		"socks port 0":       {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"},
-		"garbage":            {LocalAddr: "127.0.0.1:1", RemoteAddr: "http://example.com", SocksAddr: "127.0.0.1:1080"},
+		"empty local":           {LocalAddr: "", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
+		"empty remote":          {LocalAddr: "127.0.0.1:1", RemoteAddr: "", SocksAddr: "127.0.0.1:1080"},
+		"empty socks":           {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: ""},
+		"local without port":    {LocalAddr: "127.0.0.1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
+		"remote empty host":     {LocalAddr: "127.0.0.1:1", RemoteAddr: ":80", SocksAddr: "127.0.0.1:1080"},
+		"socks empty host":      {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: ":1080"},
+		"bad port":              {LocalAddr: "127.0.0.1:99999", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
+		"remote port 0":         {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:0", SocksAddr: "127.0.0.1:1080"},
+		"socks port 0":          {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"},
+		"garbage":               {LocalAddr: "127.0.0.1:1", RemoteAddr: "http://example.com", SocksAddr: "127.0.0.1:1080"},
+		"password without user": {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksPassword: "secret"},
+		"user too long":         {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("u", 256)},
+		"user too long utf8":    {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("密", 86)}, // 86 个汉字 = 258 字节
+		"password too long":     {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: "alice", SocksPassword: strings.Repeat("p", 256)},
 	}
 	for name, c := range invalid {
 		if err := c.Validate(); err == nil {
