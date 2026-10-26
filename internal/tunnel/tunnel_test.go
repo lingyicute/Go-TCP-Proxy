@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,13 +19,16 @@ import (
 
 // ---------- 测试辅助：一个极简但行为正确的 SOCKS5 服务器 ----------
 
-// socksServer 实现 RFC 1928 的 CONNECT，只支持无认证方式。
+// socksServer 实现 RFC 1928 的 CONNECT；user 非空时要求 RFC 1929 用户名/密码认证，否则只接受无认证。
 // 转发阶段正确传播半关闭，以便验证被测代码也做到了这一点。
 type socksServer struct {
 	ln       net.Listener
 	requests atomic.Int32
 	// hang 为 true 时，接受 TCP 连接后不做任何回应——用于测试握手超时。
 	hang bool
+	// user / pass 非空时要求用户名/密码认证；authAttempts 统计客户端实际发来的认证次数。
+	user, pass   string
+	authAttempts atomic.Int32
 }
 
 func newSocksServer(t *testing.T) *socksServer {
@@ -31,12 +36,21 @@ func newSocksServer(t *testing.T) *socksServer {
 }
 
 func newSocksServerWith(t *testing.T, hang bool) *socksServer {
+	return newSocksServerFull(t, hang, "", "")
+}
+
+// newAuthSocksServer 返回一个要求用户名/密码认证的 SOCKS5 服务器。
+func newAuthSocksServer(t *testing.T, user, pass string) *socksServer {
+	return newSocksServerFull(t, false, user, pass)
+}
+
+func newSocksServerFull(t *testing.T, hang bool, user, pass string) *socksServer {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &socksServer{ln: ln, hang: hang}
+	s := &socksServer{ln: ln, hang: hang, user: user, pass: pass}
 	t.Cleanup(func() { ln.Close() })
 	go s.serve()
 	return s
@@ -66,10 +80,42 @@ func (s *socksServer) handle(c net.Conn) {
 	if _, err := io.ReadFull(c, buf[:2]); err != nil || buf[0] != 5 {
 		return
 	}
-	if _, err := io.ReadFull(c, buf[:int(buf[1])]); err != nil {
+	methods := make([]byte, int(buf[1]))
+	if _, err := io.ReadFull(c, methods); err != nil {
 		return
 	}
-	c.Write([]byte{5, 0})
+	if s.user == "" {
+		c.Write([]byte{5, 0}) // 无认证
+	} else {
+		if !bytes.ContainsRune(methods, 2) {
+			c.Write([]byte{5, 0xff}) // 客户端没有提供用户名/密码方式
+			return
+		}
+		c.Write([]byte{5, 2})
+		// RFC 1929 子协商：VER=1, ULEN, UNAME, PLEN, PASSWD
+		if _, err := io.ReadFull(c, buf[:2]); err != nil || buf[0] != 1 {
+			return
+		}
+		ulen := int(buf[1])
+		if _, err := io.ReadFull(c, buf[:ulen]); err != nil {
+			return
+		}
+		user := string(buf[:ulen])
+		if _, err := io.ReadFull(c, buf[:1]); err != nil {
+			return
+		}
+		plen := int(buf[0])
+		if _, err := io.ReadFull(c, buf[:plen]); err != nil {
+			return
+		}
+		pass := string(buf[:plen])
+		s.authAttempts.Add(1)
+		if user != s.user || pass != s.pass {
+			c.Write([]byte{1, 1}) // 认证失败，RFC 要求随后关闭连接
+			return
+		}
+		c.Write([]byte{1, 0})
+	}
 	// CONNECT 请求
 	if _, err := io.ReadFull(c, buf[:4]); err != nil || buf[1] != 1 {
 		return
@@ -826,5 +872,138 @@ func TestSessionActiveAtIsMonotonic(t *testing.T) {
 	}
 	if d := time.Since(ss.activeAt()); d < 0 || d > time.Second {
 		t.Fatalf("activeAt() 应约等于现在, 实际相差 %v", d)
+	}
+}
+
+// ---------- SOCKS5 用户名/密码认证（RFC 1929） ----------
+
+// logBuffer 是可以并发写入的日志缓冲区：handle 在各自的 goroutine 里打日志。
+type logBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// echoThrough 经隧道发一段数据并期望原样回显。
+func echoThrough(t *testing.T, ln net.Listener) {
+	t.Helper()
+	c := dialTCP(t, ln.Addr().String())
+	const payload = "auth ok?"
+	if _, err := c.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, len(payload))
+	if _, err := io.ReadFull(c, buf); err != nil {
+		t.Fatalf("读取回显失败: %v", err)
+	}
+	if string(buf) != payload {
+		t.Fatalf("回显不一致: %q", buf)
+	}
+}
+
+// expectClosedByTunnel 断言客户端连接被隧道关闭（拨号失败时的表现），并返回其间产生的日志。
+func expectClosedByTunnel(t *testing.T, srv *Server, ln net.Listener, logs *logBuffer) string {
+	t.Helper()
+	c := dialTCP(t, ln.Addr().String())
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := c.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("握手失败时应关闭客户端连接 (EOF), 实际 err=%v", err)
+	}
+	waitFor(t, "连接计数归零", func() bool { return srv.ActiveConns() == 0 })
+	return logs.String()
+}
+
+func TestSocksAuth_Succeeds(t *testing.T) {
+	socks := newAuthSocksServer(t, "alice", "s3cret 密码")
+	echo := echoServer(t)
+	_, ln := startTunnel(t, Options{RemoteAddr: echo, SocksAddr: socks.addr(), SocksUser: "alice", SocksPassword: "s3cret 密码"})
+
+	echoThrough(t, ln)
+	if n := socks.authAttempts.Load(); n != 1 {
+		t.Errorf("期望认证 1 次, 实际 %d 次", n)
+	}
+}
+
+// 空密码：RFC 1929 的报文格式允许 PLEN=0，x/net 也接受，有的代理用它做"仅用户名"的 ACL。
+func TestSocksAuth_EmptyPasswordIsAllowed(t *testing.T) {
+	socks := newAuthSocksServer(t, "alice", "")
+	echo := echoServer(t)
+	_, ln := startTunnel(t, Options{RemoteAddr: echo, SocksAddr: socks.addr(), SocksUser: "alice"})
+	echoThrough(t, ln)
+}
+
+func TestSocksAuth_WrongPasswordIsReportedWithHint(t *testing.T) {
+	socks := newAuthSocksServer(t, "alice", "right")
+	echo := echoServer(t)
+	logs := &logBuffer{}
+	srv, ln := startTunnel(t, Options{RemoteAddr: echo, SocksAddr: socks.addr(), SocksUser: "alice", SocksPassword: "wrong", Logger: log.New(logs, "", 0)})
+
+	got := expectClosedByTunnel(t, srv, ln, logs)
+	if !strings.Contains(got, "拒绝了配置的用户名/密码") {
+		t.Errorf("日志应提示凭据被拒绝，实际:\n%s", got)
+	}
+	if n := socks.authAttempts.Load(); n != 1 {
+		t.Errorf("期望认证 1 次, 实际 %d 次", n)
+	}
+}
+
+func TestSocksAuth_RequiredButNotConfiguredIsReportedWithHint(t *testing.T) {
+	socks := newAuthSocksServer(t, "alice", "right")
+	echo := echoServer(t)
+	logs := &logBuffer{}
+	srv, ln := startTunnel(t, Options{RemoteAddr: echo, SocksAddr: socks.addr(), Logger: log.New(logs, "", 0)})
+
+	got := expectClosedByTunnel(t, srv, ln, logs)
+	if !strings.Contains(got, "代理要求用户名/密码认证，但当前没有配置凭据") {
+		t.Errorf("日志应提示需要配置凭据，实际:\n%s", got)
+	}
+	if n := socks.authAttempts.Load(); n != 0 {
+		t.Errorf("没有配置凭据时不应有认证尝试, 实际 %d 次", n)
+	}
+}
+
+// 配置了凭据、代理却不要求认证：客户端同时提供两种方式，代理选"无认证"，凭据不会被发送。
+// 这也意味着换成不需要认证的代理后，配置里残留的旧凭据是无害的。
+func TestSocksAuth_CredentialsNotSentWhenProxyDoesNotAsk(t *testing.T) {
+	socks := newSocksServer(t)
+	echo := echoServer(t)
+	_, ln := startTunnel(t, Options{RemoteAddr: echo, SocksAddr: socks.addr(), SocksUser: "alice", SocksPassword: "s3cret"})
+
+	echoThrough(t, ln)
+	if n := socks.authAttempts.Load(); n != 0 {
+		t.Errorf("代理不要求认证时不应发送凭据, 实际发送 %d 次", n)
+	}
+}
+
+func TestNew_ValidatesSocksCredentials(t *testing.T) {
+	base := Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"}
+	bad := map[string]func(o *Options){
+		"password without user": func(o *Options) { o.SocksPassword = "x" },
+		"user too long":         func(o *Options) { o.SocksUser = strings.Repeat("u", 256) },
+		"password too long":     func(o *Options) { o.SocksUser, o.SocksPassword = "u", strings.Repeat("p", 256) },
+	}
+	for name, mutate := range bad {
+		o := base
+		mutate(&o)
+		if _, err := New(o); err == nil {
+			t.Errorf("%s: 期望返回错误，实际 nil", name)
+		}
+	}
+	good := base
+	good.SocksUser, good.SocksPassword = strings.Repeat("u", 255), strings.Repeat("p", 255)
+	if _, err := New(good); err != nil {
+		t.Errorf("255 字节的凭据应合法: %v", err)
 	}
 }
