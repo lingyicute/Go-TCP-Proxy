@@ -40,6 +40,9 @@ html.dark{ color-scheme: dark; }
 
 /* 主题切换期间的全局色彩过渡 */
 html.theming, html.theming *{ transition: background-color .38s ease, color .38s ease, border-color .38s ease, fill .38s ease, stroke .38s ease, box-shadow .38s ease !important; }
+/* 上面的 !important 会把组件自己的 transition 整个盖掉，而明暗切换恰好总是发生在 theming 期间：
+   不单独放行的话，日月图标的旋转与淡出永远没有机会播放 */
+html.theming #themeBtn .sun-moon svg{ transition:transform .45s cubic-bezier(.2,0,0,1), opacity .3s !important; }
 
 /* ============ 基础 ============ */
 *{ margin:0; padding:0; box-sizing:border-box; }
