@@ -1149,11 +1149,11 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   /* ---------- 导航高亮 ---------- */
   // 记下每个区块是否在观察带内，高亮其中最靠后的一个；都不在（滚回首屏）就全部取消。
   // 之前只处理进入：离开所有区块后，最后经过的那一项会一直亮着。
-  var secIds = ['features','quickstart','use','faq'], inBand = {};
+  var secIds = ['features','quickstart','use','faq'], inBand = {}, navLinks = $$('.nav-link');
   var spy = new IntersectionObserver(function(entries){
     entries.forEach(function(en){ inBand[en.target.id] = en.isIntersecting; });
     var cur = secIds.filter(function(id){ return inBand[id]; }).pop();
-    $$('.nav-link').forEach(function(l){ l.classList.toggle('active', l.dataset.sec === cur); });
+    navLinks.forEach(function(l){ l.classList.toggle('active', l.dataset.sec === cur); });
   }, { rootMargin:'-38% 0px -55% 0px' });
   secIds.forEach(function(id){ var s = document.getElementById(id); if(s) spy.observe(s); });
 
