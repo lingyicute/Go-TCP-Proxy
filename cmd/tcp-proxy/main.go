@@ -314,11 +314,11 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 			cfg.SocksUser, cfg.SocksPassword = "", ""
 		}
 		fmt.Println()
-		if stdinEOF && errors.Is(loadErr, config.ErrNotFound) && cfg.RemoteAddr == config.Defaults.RemoteAddr {
-			// 标准输入已经结束（没有 TTY 的容器 / 服务），又没有保存过的配置可以沿用：
-			// 此时"默认值"只剩占位符 example.com:80。之前这里会静默地把流量转发到
-			// example.com:80，并且把它写进配置文件变成以后的默认值。
-			return cfg, "", errors.New("标准输入已结束且未找到配置文件，无法确定远程目标地址；" +
+		if stdinEOF && loadErr != nil && cfg.RemoteAddr == config.Defaults.RemoteAddr {
+			// 标准输入已经结束（没有 TTY 的容器 / 服务），又没有保存过的配置可以沿用
+			// （文件不存在，或者损坏后已经用默认值兜底）：此时"默认值"只剩占位符 example.com:80。
+			// 之前这里会静默地把流量转发到 example.com:80，并且把它写进配置文件变成以后的默认值。
+			return cfg, "", errors.New("标准输入已结束且没有可用的配置文件，无法确定远程目标地址；" +
 				"请通过 -r 指定（非交互场景建议使用 -y 或 -l/-r/-s 参数）")
 		}
 	} else if errors.Is(loadErr, config.ErrNotFound) && opts.remote == "" {
