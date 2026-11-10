@@ -271,11 +271,17 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	s.cancelDial()
 	s.mu.Lock()
+	// 计时器 / ctx 与 done 同时就绪时 select 随机选一个；ctx 已取消时 done 还可能差一步才关闭。
+	// 会话在 wg.Done 之前就已 untrack，此处集合为空就说明所有连接都已自然结束，不算强制关闭。
+	forced := len(s.sessions)
 	for ss := range s.sessions {
 		ss.closeAll()
 	}
 	s.mu.Unlock()
 	<-done
+	if forced == 0 {
+		return nil
+	}
 	return err
 }
 

@@ -620,6 +620,21 @@ func TestShutdownHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+// 没有任何连接需要强制关闭时，即使 ctx 已经取消（select 可能先选中 ctx 分支），也应报告正常停机。
+func TestShutdownWithNoConnectionsIsCleanEvenIfCtxCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := 0; i < 50; i++ {
+		srv, err := New(Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Fatalf("没有活跃连接时 Shutdown 不应报告强制关闭, 实际 %v", err)
+		}
+	}
+}
+
 // 强制停机时，卡在 SOCKS5 握手阶段的连接也必须被打断，否则 Shutdown 会一直等到 DialTimeout。
 func TestShutdownInterruptsPendingDials(t *testing.T) {
 	socks := newSocksServerWith(t, true) // 只接受 TCP，不回应握手
