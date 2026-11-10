@@ -171,9 +171,16 @@ html:not(.dark) .icon-moon{ transform:rotate(-90deg) scale(.4); opacity:0; }
   mask-image:linear-gradient(to bottom, black 20%, transparent 90%);
   -webkit-mask-image:linear-gradient(to bottom, black 20%, transparent 90%);
 }
-.blob{ position:absolute; border-radius:50%; filter:blur(90px); opacity:.55; pointer-events:none; }
-.blob.b1{ width:520px; height:520px; background:var(--primary-container); top:-180px; right:-120px; animation:float1 16s ease-in-out infinite; }
-.blob.b2{ width:420px; height:420px; background:var(--tertiary-container); bottom:-220px; left:-140px; animation:float2 20s ease-in-out infinite; }
+/* 柔边用径向遮罩画出来，而不是 filter:blur(90px)：模糊滤镜挂在一直做 transform 动画的层上，
+   合成器每一帧都要对整块大面积重新做一次高斯模糊；遮罩只栅格化一次，之后纯合成平移。
+   盒子按模糊外延（约 2σ）放大并同步挪动偏移，视觉范围与原来一致；底色仍是纯色，换主题时照样过渡。 */
+.blob{
+  position:absolute; border-radius:50%; opacity:.55; pointer-events:none;
+  -webkit-mask-image:radial-gradient(closest-side, #000 20%, transparent);
+  mask-image:radial-gradient(closest-side, #000 20%, transparent);
+}
+.blob.b1{ width:880px; height:880px; background:var(--primary-container); top:-360px; right:-300px; animation:float1 16s ease-in-out infinite; }
+.blob.b2{ width:780px; height:780px; background:var(--tertiary-container); bottom:-400px; left:-320px; animation:float2 20s ease-in-out infinite; }
 @keyframes float1{ 50%{ transform:translate(-50px,40px) scale(1.08); } }
 @keyframes float2{ 50%{ transform:translate(60px,-30px) scale(.94); } }
 .hero-grid{ position:relative; display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center; }
