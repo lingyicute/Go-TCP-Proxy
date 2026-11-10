@@ -1088,11 +1088,18 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
 
   /* ---------- 取色弹层 ---------- */
   var popover = $('#popover'), paletteBtn = $('#paletteBtn');
-  paletteBtn.addEventListener('click', function(e){ e.stopPropagation(); popover.classList.toggle('open'); });
+  // 开合都经过这里，让读屏软件能从 aria-expanded 得知弹层当前是否展开
+  function setPopover(open){
+    popover.classList.toggle('open', open);
+    paletteBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  paletteBtn.setAttribute('aria-haspopup', 'dialog');
+  setPopover(false);
+  paletteBtn.addEventListener('click', function(e){ e.stopPropagation(); setPopover(!popover.classList.contains('open')); });
   document.addEventListener('click', function(e){
-    if(popover.classList.contains('open') && !popover.contains(e.target) && e.target !== paletteBtn) popover.classList.remove('open');
+    if(popover.classList.contains('open') && !popover.contains(e.target) && e.target !== paletteBtn) setPopover(false);
   });
-  document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ popover.classList.remove('open'); closeDrawer(); } });
+  document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ setPopover(false); closeDrawer(); } });
 
   /* ---------- 抽屉菜单 ---------- */
   var drawer = $('#drawer'), scrim = $('#scrim');
