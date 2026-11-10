@@ -470,6 +470,9 @@ footer{ background:var(--surface-cll); border-top:1px solid var(--outline-varian
 .reveal.in{ opacity:1; transform:none; }
 /* 离开视口的区块暂停无限循环动画（JS 用 IntersectionObserver 切换），省去模糊光斑、背景模糊等持续的合成与重绘 */
 .anim-off, .anim-off *, .anim-off *::before, .anim-off *::after{ animation-play-state:paused !important; }
+/* 涟漪是一次性的，不能跟着暂停：点 Hero 里的「快速开始」后页面平滑滚走，涟漪播到一半就被冻住、
+   animationend 永远不来，滚回来时按钮上还残留着半透明的圆斑 */
+.anim-off .rk{ animation-play-state:running !important; }
 
 /* ============ 响应式 ============ */
 @media (max-width:1020px){
