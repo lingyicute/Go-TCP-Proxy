@@ -1183,7 +1183,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
         var ta = document.createElement('textarea');
         ta.value = code; ta.style.cssText = 'position:fixed;opacity:0';
         document.body.appendChild(ta); ta.select();
-        try{ document.execCommand('copy'); done(); }catch(e){}
+        try{ if(document.execCommand('copy')) done(); }catch(e){}
         ta.remove();
       }
     });
