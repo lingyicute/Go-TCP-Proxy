@@ -75,6 +75,19 @@ func TestResolveConfig_StdinEOFWithoutConfigRejectsPlaceholder(t *testing.T) {
 	}
 }
 
+// 回归测试：配置文件损坏时交互模式用默认值兜底；若标准输入又立刻 EOF，旧实现只在"文件不存在"时
+// 拒绝占位符，于是照样把 example.com:80 当作真实目标，还会用默认值覆盖掉那份损坏的配置。
+func TestResolveConfig_StdinEOFWithMalformedConfigRejectsPlaceholder(t *testing.T) {
+	useStdin(t, "")
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := resolveConfig(mustParse(t, "-c", path)); err == nil {
+		t.Fatal("stdin EOF 且配置文件损坏时应报错，而不是采用占位符 example.com:80")
+	}
+}
+
 // 有已保存的配置时，stdin EOF 只是"一路回车"：沿用保存的值即可。
 func TestResolveConfig_StdinEOFWithSavedConfigUsesIt(t *testing.T) {
 	useStdin(t, "")
