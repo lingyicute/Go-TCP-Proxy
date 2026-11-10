@@ -104,7 +104,9 @@ def fetch_font(local: Path | None, url: str, refresh: bool) -> tuple[Path, bool]
     os.close(fd)
     tmp = Path(tmp_name)
     try:
-        with urllib.request.urlopen(url) as resp, tmp.open("wb") as f:
+        # 必须带超时：urlopen 默认无限等待，服务器接了连接却迟迟不发数据时，
+        # CI 会一直挂到作业的 6 小时上限，还会堵住排在后面的运行。
+        with urllib.request.urlopen(url, timeout=60) as resp, tmp.open("wb") as f:
             shutil.copyfileobj(resp, f)
     except (urllib.error.URLError, OSError) as e:
         tmp.unlink(missing_ok=True)
