@@ -1101,6 +1101,9 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   $('#drawerClose').addEventListener('click', closeDrawer);
   scrim.addEventListener('click', closeDrawer);
   $$('#drawer .nav-link').forEach(function(a){ a.addEventListener('click', closeDrawer); });
+  // 抽屉开着时把窗口拉宽（或平板转横屏）越过 920px 断点，菜单按钮随之隐藏，
+  // 抽屉、遮罩和 body 的滚动锁却还留着，页面既滚不动也找不到关闭入口
+  matchMedia('(min-width:921px)').addEventListener('change', function(e){ if(e.matches) closeDrawer(); });
 
   /* ---------- 涟漪 ---------- */
   if(!reduced){
