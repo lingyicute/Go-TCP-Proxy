@@ -212,6 +212,17 @@ html:not(.dark) .icon-moon{ transform:rotate(-90deg) scale(.4); opacity:0; }
   box-shadow:0 24px 60px -30px rgb(0 0 0/.28);
 }
 .diag-card svg text{ user-select:none; }
+/* 数据包与脉冲环用 CSS 动画，只动 transform / opacity，整段动画都在合成器上跑。
+   之前用 SMIL（animateMotion、animate r），只要图还在视口里，主线程每一帧都得重算样式、布局、重绘并重新光栅化；
+   圆点也没有 cx / cy，带 begin 延迟的那几个在动画开始前会堆在 svg 的 (0,0) 角上，现在它们停在各自线段的起点 */
+.pkt{ animation:pkt 2.2s linear infinite; }
+.pkt.rev{ animation-name:pkt-rev; animation-duration:3s; }
+.mini-flow .pkt{ animation-name:pkt-mini; animation-duration:2s; }
+@keyframes pkt{ to{ transform:translateX(66px); } }
+@keyframes pkt-rev{ to{ transform:translateX(-66px); } }
+@keyframes pkt-mini{ to{ transform:translateX(92px); } }
+.pulse{ transform-origin:252px 112px; animation:pulse 2.6s linear infinite; }
+@keyframes pulse{ to{ transform:scale(1.4615); opacity:0; } }
 .diag-cap{ display:flex; justify-content:center; gap:22px; padding-top:14px; font-size:12.5px; color:var(--on-surface-variant); }
 .diag-cap b{ display:inline-flex; align-items:center; gap:7px; font-weight:600; }
 .dot{ width:9px; height:9px; border-radius:50%; display:inline-block; }
@@ -501,6 +512,8 @@ footer{ background:var(--surface-cll); border-top:1px solid var(--outline-varian
 @media (prefers-reduced-motion: reduce){
   *, *::before, *::after{ animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important; scroll-behavior:auto !important; }
   .reveal{ opacity:1; transform:none; }
+  /* 数据包没有动画就只是停在线段起点的几个圆点，干脆不显示；脉冲环留作静态描边 */
+  .pkt{ display:none; }
 }
 </style>
 <style>
@@ -720,14 +733,8 @@ window.GTP = (function(){
           <path d="M298 112 L364 112" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>
           <path d="M456 112 L522 112" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>
           <!-- 中心节点脉冲 -->
-          <circle cx="252" cy="112" r="52" fill="none" style="stroke:var(--primary)" stroke-width="1.5" opacity=".35">
-            <animate attributeName="r" values="52;76" dur="2.6s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values=".35;0" dur="2.6s" repeatCount="indefinite"/>
-          </circle>
-          <circle cx="252" cy="112" r="52" fill="none" style="stroke:var(--primary)" stroke-width="1.5" opacity=".35">
-            <animate attributeName="r" values="52;76" dur="2.6s" begin="1.3s" repeatCount="indefinite"/>
-            <animate attributeName="opacity" values=".35;0" dur="2.6s" begin="1.3s" repeatCount="indefinite"/>
-          </circle>
+          <circle class="pulse" cx="252" cy="112" r="52" fill="none" style="stroke:var(--primary)" stroke-width="1.5" opacity=".35"/>
+          <circle class="pulse" cx="252" cy="112" r="52" fill="none" style="stroke:var(--primary);animation-delay:1.3s" stroke-width="1.5" opacity=".35"/>
           <!-- 节点 -->
           <g>
             <rect x="52" y="68" width="88" height="88" rx="24" style="fill:var(--surface-clll, var(--surface-cl));stroke:var(--outline-variant)"/>
@@ -754,13 +761,13 @@ window.GTP = (function(){
             <text x="566" y="212" text-anchor="middle" font-size="10.5" style="fill:var(--on-surface-variant)" font-family="'JetBrains Mono',monospace">example.com:22</text>
           </g>
           <!-- 数据包：客户端 → 远程 -->
-          <circle r="5" style="fill:var(--primary)"><animateMotion dur="2.2s" repeatCount="indefinite" path="M140 112 L206 112"/></circle>
-          <circle r="5" style="fill:var(--primary)"><animateMotion dur="2.2s" begin="0.7s" repeatCount="indefinite" path="M298 112 L364 112"/></circle>
-          <circle r="5" style="fill:var(--primary)"><animateMotion dur="2.2s" begin="1.4s" repeatCount="indefinite" path="M456 112 L522 112"/></circle>
+          <circle class="pkt" cx="140" cy="112" r="5" style="fill:var(--primary)"/>
+          <circle class="pkt" cx="298" cy="112" r="5" style="fill:var(--primary);animation-delay:.7s"/>
+          <circle class="pkt" cx="456" cy="112" r="5" style="fill:var(--primary);animation-delay:1.4s"/>
           <!-- 数据包：远程 → 客户端 -->
-          <circle r="4" style="fill:var(--tertiary)"><animateMotion dur="3s" begin="0.4s" repeatCount="indefinite" path="M206 112 L140 112"/></circle>
-          <circle r="4" style="fill:var(--tertiary)"><animateMotion dur="3s" begin="1.1s" repeatCount="indefinite" path="M364 112 L298 112"/></circle>
-          <circle r="4" style="fill:var(--tertiary)"><animateMotion dur="3s" begin="1.8s" repeatCount="indefinite" path="M522 112 L456 112"/></circle>
+          <circle class="pkt rev" cx="206" cy="112" r="4" style="fill:var(--tertiary);animation-delay:.4s"/>
+          <circle class="pkt rev" cx="364" cy="112" r="4" style="fill:var(--tertiary);animation-delay:1.1s"/>
+          <circle class="pkt rev" cx="522" cy="112" r="4" style="fill:var(--tertiary);animation-delay:1.8s"/>
         </svg>
         <div class="diag-cap">
           <b><span class="dot" style="background:var(--primary)"></span>客户端 → 远程</b>
@@ -801,8 +808,8 @@ window.GTP = (function(){
           <svg viewBox="0 0 560 74" width="100%" aria-hidden="true">
             <path d="M92 37 L184 37" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/>
             <path d="M276 37 L368 37" fill="none" style="stroke:var(--outline)" stroke-width="2" stroke-dasharray="2 7" stroke-linecap="round"/>
-            <circle r="4.5" style="fill:var(--primary)"><animateMotion dur="2s" repeatCount="indefinite" path="M92 37 L184 37"/></circle>
-            <circle r="4.5" style="fill:var(--primary)"><animateMotion dur="2s" begin="0.65s" repeatCount="indefinite" path="M276 37 L368 37"/></circle>
+            <circle class="pkt" cx="92" cy="37" r="4.5" style="fill:var(--primary)"/>
+            <circle class="pkt" cx="276" cy="37" r="4.5" style="fill:var(--primary);animation-delay:.65s"/>
             <g font-family="'JetBrains Mono',monospace" font-size="11" style="fill:var(--on-surface-variant)">
               <rect x="14" y="17" width="78" height="40" rx="13" style="fill:var(--surface-ch)"/>
               <text x="53" y="42" text-anchor="middle">程序</text>
@@ -1215,26 +1222,14 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   });
 
   /* ---------- 离屏暂停动画 ---------- */
-  // 无限循环的 CSS / SMIL 动画在看不见时依旧每帧消耗样式计算、合成与重绘；
+  // 无限循环的 CSS 动画在看不见时依旧每帧消耗合成与重绘；
   // 终端演示也会一直改 DOM。离开视口就暂停，回来再继续。
   // 只观察真正带循环动画的区块：没有动画的卡片切换 anim-off 只会白白触发整棵子树的样式重算。
-  // 含 SMIL 的 svg 也在这里一次查好，免得每次进出视口都 querySelectorAll 一遍。
-  // 减少动态效果时去掉 SMIL 动画。数据包圆点没有 cx/cy，全靠 animateMotion 定位，
-  // 只删动画会让它们全部堆在 svg 左上角 (0,0)，所以连圆点一起移除；
-  // 放在下面收集 smilSvgs 之前，静止下来的 svg 和卡片就不必再被观察。
-  if(reduced){
-    $$('animateMotion').forEach(function(el){ el.parentNode.remove(); });
-    $$('animate').forEach(function(el){ el.remove(); });
-  }
   var termVisible = true, termWaiters = [];
-  var smilSvgs = new Map();
   var animIO = new IntersectionObserver(function(entries){
     entries.forEach(function(en){
       var el = en.target, on = en.isIntersecting;
       el.classList.toggle('anim-off', !on);
-      smilSvgs.get(el).forEach(function(svg){
-        if(on) svg.unpauseAnimations(); else svg.pauseAnimations();
-      });
       if(el.id === 'terminal'){
         termVisible = on;
         if(on && termWaiters.length){
@@ -1246,11 +1241,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     });
   }, { rootMargin:'100px 0px' });
   $$('.hero, #terminal, .card').forEach(function(el){
-    var svgs = Array.prototype.filter.call(el.querySelectorAll('svg'), function(svg){
-      return !!svg.querySelector('animate, animateMotion');
-    });
-    if(el.classList.contains('card') && !svgs.length && !el.querySelector('.duplex, .drainbar')) return;
-    smilSvgs.set(el, svgs);
+    if(el.classList.contains('card') && !el.querySelector('.pkt, .duplex, .drainbar')) return;
     animIO.observe(el);
   });
 
