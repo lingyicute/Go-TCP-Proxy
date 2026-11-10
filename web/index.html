@@ -1066,7 +1066,9 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
       b.setAttribute('aria-label', '使用主题色：' + sd.n);
       b.style.cssText = swatchStyle(sd);
       b.innerHTML = '<svg class="ic"><use href="#i-check"/></svg>';
-      b.addEventListener('click', function(){ G.state.seed = i; G.save(); G.apply(true); });
+      // 点的就是当前色时什么都不用做：apply(true) 会给全页元素挂上 theming 过渡并重写全部色彩变量，
+      // 换来的只是一次没有任何视觉变化的全量样式重算
+      b.addEventListener('click', function(){ if(G.state.seed === i) return; G.state.seed = i; G.save(); G.apply(true); });
       container.appendChild(b);
     });
   }
