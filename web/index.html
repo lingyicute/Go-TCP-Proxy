@@ -1373,9 +1373,12 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     var ok = line('t-ok'); ok.textContent = ' ✓ 全双工转发中：本地端口 → Socks5 → my-server.com:22';
     ok.appendChild(caret);
 
-    await sleep(reduced ? 2500 : 3800); if(!alive()) return;
+    // 减少动态效果时只播一遍、停在最终画面：否则每隔几秒整屏清空再瞬间重打一遍，比正常的打字动画更晃眼。
+    // 想再看可以点重播按钮；这里没有 sleep 代劳，贴底要自己做
+    if(reduced){ follow(); return; }
+    await sleep(3800); if(!alive()) return;
     termBody.style.opacity = 0;
-    await sleep(reduced ? 100 : 620); if(!alive()) return;
+    await sleep(620); if(!alive()) return;
     runType(id);
   }
   runType(++runId);
