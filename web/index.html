@@ -205,8 +205,9 @@ html:not(.dark) .icon-moon{ transform:rotate(-90deg) scale(.4); opacity:0; }
 /* Hero 拓扑图 */
 .hero-viz{ position:relative; }
 .diag-card{
-  background:color-mix(in srgb, var(--surface-cll) 72%, transparent);
-  backdrop-filter:blur(8px);
+  /* 不用 backdrop-filter：卡片正好压在一直在漂移的 .blob 光斑上，背景模糊得每帧重新采样、重新模糊；
+     光斑本身已经 blur(90px)，再糊一层看不出区别，提高一点不透明度盖住点阵就够了 */
+  background:color-mix(in srgb, var(--surface-cll) 84%, transparent);
   border:1px solid var(--outline-variant); border-radius:32px; padding:26px 16px 20px;
   box-shadow:0 24px 60px -30px rgb(0 0 0/.28);
 }
