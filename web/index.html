@@ -1168,17 +1168,21 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   /* ---------- 复制 ---------- */
   $$('.ccopy').forEach(function(btn){
     var resetTimer;
+    // 只改图标引用和文字节点，不用 innerHTML 整个重写：按下时插入的涟漪 span 还在播放，
+    // 重写会把它连同图标 svg 一起销毁重建，涟漪播到一半就消失。
+    var icon = btn.querySelector('use'), label = btn.querySelector('svg').nextSibling;
+    function setLabel(href, text){ icon.setAttribute('href', href); label.nodeValue = text; }
     btn.addEventListener('click', function(){
       // <pre> 里的空白原样保留，textContent 与 innerText 结果一致，但不会像 innerText 那样强制同步布局
       var code = btn.closest('.codecard').querySelector('code').textContent;
       function done(){
         btn.classList.add('done');
-        btn.innerHTML = '<svg class="ic"><use href="#i-check"/></svg>已复制';
+        setLabel('#i-check', '已复制');
         // 连续点击时重新计时：否则上一次的定时器会提前把这次的「已复制」撤掉
         clearTimeout(resetTimer);
         resetTimer = setTimeout(function(){
           btn.classList.remove('done');
-          btn.innerHTML = '<svg class="ic"><use href="#i-copy"/></svg>复制';
+          setLabel('#i-copy', '复制');
         }, 1600);
       }
       if(navigator.clipboard && navigator.clipboard.writeText){
