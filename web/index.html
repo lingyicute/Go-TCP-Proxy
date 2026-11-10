@@ -1228,7 +1228,12 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   var runId = 0;
   if(reduced){ $$('animateMotion, animate').forEach(function(el){ el.remove(); }); }
 
+  // 终端框高度固定、溢出裁剪：窄屏上长句会折行，十几行内容就超出 340px，
+  // 最后那句「✓ 全双工转发中」被裁在框外。每次改完 DOM（紧接着总会 sleep）就贴底，
+  // 让最新一行始终可见；contain:strict 下这次布局只涉及终端框内部。
+  function follow(){ termBody.scrollTop = termBody.scrollHeight; }
   function sleep(ms){
+    follow();
     return new Promise(function(res){
       setTimeout(function(){
         // 定时器到期时已经离屏，就只登记恢复点，不继续打字或开始下一轮。
