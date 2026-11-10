@@ -1192,7 +1192,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   /* ---------- 离屏暂停动画 ---------- */
   // 无限循环的 CSS / SMIL 动画在看不见时依旧每帧消耗样式计算、合成与重绘；
   // 终端演示也会一直改 DOM。离开视口就暂停，回来再继续。
-  var termVisible = true, resumeTerm = null;
+  var termVisible = true, termWaiters = [];
   var animIO = new IntersectionObserver(function(entries){
     entries.forEach(function(en){
       var el = en.target, on = en.isIntersecting;
@@ -1203,7 +1203,11 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
       });
       if(el.id === 'terminal'){
         termVisible = on;
-        if(on && resumeTerm){ var r = resumeTerm; resumeTerm = null; r(); }
+        if(on && termWaiters.length){
+          var waiters = termWaiters;
+          termWaiters = [];
+          waiters.forEach(function(resume){ resume(); });
+        }
       }
     });
   }, { rootMargin:'100px 0px' });
@@ -1214,7 +1218,15 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   var runId = 0;
   if(reduced){ $$('animateMotion, animate').forEach(function(el){ el.remove(); }); }
 
-  function sleep(ms){ return new Promise(function(res){ setTimeout(res, ms); }); }
+  function sleep(ms){
+    return new Promise(function(res){
+      setTimeout(function(){
+        // 定时器到期时已经离屏，就只登记恢复点，不继续打字或开始下一轮。
+        // 用队列而不是单个回调：重播产生的已取消任务也能被释放，不会永久挂住。
+        if(termVisible) res(); else termWaiters.push(res);
+      }, ms);
+    });
+  }
   async function runType(id){
     linesEl.innerHTML = '';
     termBody.style.opacity = 1;
@@ -1265,10 +1277,6 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     await sleep(reduced ? 2500 : 3800); if(!alive()) return;
     termBody.style.opacity = 0;
     await sleep(reduced ? 100 : 620); if(!alive()) return;
-    if(!termVisible){ // 不在视口内就不开始下一轮，等滚回来再播放
-      await new Promise(function(res){ resumeTerm = res; });
-      if(!alive()) return;
-    }
     runType(id);
   }
   runType(++runId);
