@@ -31,6 +31,16 @@ func TestLoad_Malformed(t *testing.T) {
 	}
 }
 
+// 回归测试：Windows 记事本 / PowerShell 5 保存的 UTF-8 文件带 BOM，旧实现会报解析失败。
+func TestLoad_AcceptsUTF8BOM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(path, []byte("\xef\xbb\xbf"+`{"remote_addr":"db.internal:5432"}`), 0o600)
+	cfg, err := Load(path)
+	if err != nil || cfg.RemoteAddr != "db.internal:5432" {
+		t.Fatalf("带 BOM 的配置应正常加载: cfg=%+v err=%v", cfg, err)
+	}
+}
+
 // 回归测试：旧实现对缺字段的配置不做回填，空的 local_addr 会让程序监听 0.0.0.0 的随机端口。
 func TestLoad_FillsMissingFieldsWithDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
