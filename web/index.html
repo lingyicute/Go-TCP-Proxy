@@ -547,7 +547,9 @@ window.GTP = (function(){
   var state = { seed:0, dark:mql.matches, saved:false };
   try{
     var s = JSON.parse(localStorage.getItem(LS));
-    if(s && typeof s.seed === 'number'){ state.seed = Math.abs(s.seed) % SEEDS.length; state.dark = !!s.dark; state.saved = true; }
+    if(s && Number.isInteger(s.seed) && s.seed >= 0 && s.seed < SEEDS.length){
+      state.seed = s.seed; state.dark = !!s.dark; state.saved = true;
+    }
   }catch(e){}
   var themingTimer;
   function apply(animate){
