@@ -124,9 +124,11 @@ html:not(.dark) .icon-moon{ transform:rotate(-90deg) scale(.4); opacity:0; }
   border-radius:var(--r-l); padding:20px 22px; width:288px;
   box-shadow:0 16px 40px -12px rgb(0 0 0/.3);
   opacity:0; transform:translateY(-8px) scale(.97); pointer-events:none;
-  transition:opacity .22s, transform .28s cubic-bezier(.2,0,0,1);
+  /* 只靠 opacity:0 藏起来的话，里面的色块仍然能被 Tab 聚焦；visibility 延迟到淡出结束后再切换 */
+  visibility:hidden;
+  transition:opacity .22s, transform .28s cubic-bezier(.2,0,0,1), visibility 0s .28s;
 }
-.popover.open{ opacity:1; transform:none; pointer-events:auto; }
+.popover.open{ opacity:1; transform:none; pointer-events:auto; visibility:visible; transition-delay:0s; }
 .popover h4{ font-size:14px; font-weight:800; display:flex; align-items:center; gap:8px; color:var(--on-surface); }
 .popover h4 .ic{ width:15px; height:15px; color:var(--primary); }
 .popover .po-sub{ font-size:12.5px; color:var(--on-surface-variant); margin:4px 0 14px; }
@@ -148,10 +150,11 @@ html:not(.dark) .icon-moon{ transform:rotate(-90deg) scale(.4); opacity:0; }
 #drawer{
   position:fixed; top:0; right:0; bottom:0; width:min(320px, 84vw); z-index:90;
   background:var(--surface-cll); border-radius:28px 0 0 28px;
-  padding:22px; transform:translateX(105%); transition:transform .38s cubic-bezier(.2,0,0,1);
+  padding:22px; transform:translateX(105%); visibility:hidden;
+  transition:transform .38s cubic-bezier(.2,0,0,1), visibility 0s .38s;
   display:flex; flex-direction:column; gap:6px; overflow-y:auto;
 }
-#drawer.open{ transform:none; }
+#drawer.open{ transform:none; visibility:visible; transition-delay:0s; }
 .dr-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
 .dr-title{ font-weight:800; font-size:16px; display:flex; align-items:center; gap:10px; }
 .nav-link.dr{ font-size:15.5px; padding:13px 18px; border-radius:var(--r-m); }
@@ -431,10 +434,10 @@ footer{ background:var(--surface-cll); border-top:1px solid var(--outline-varian
   position:fixed; right:26px; bottom:26px; z-index:50; width:54px; height:54px;
   border-radius:18px; background:var(--primary-container); color:var(--on-primary-container);
   display:grid; place-items:center; box-shadow:0 10px 26px -8px rgb(0 0 0/.4);
-  opacity:0; transform:translateY(18px) scale(.85); pointer-events:none;
-  transition:opacity .3s, transform .35s cubic-bezier(.2,0,0,1);
+  opacity:0; transform:translateY(18px) scale(.85); pointer-events:none; visibility:hidden;
+  transition:opacity .3s, transform .35s cubic-bezier(.2,0,0,1), visibility 0s .35s;
 }
-#fab.show{ opacity:1; transform:none; pointer-events:auto; }
+#fab.show{ opacity:1; transform:none; pointer-events:auto; visibility:visible; transition-delay:0s; }
 #fab:hover{ box-shadow:0 14px 32px -8px rgb(0 0 0/.45); }
 
 /* ============ 滚动显现 ============ */
