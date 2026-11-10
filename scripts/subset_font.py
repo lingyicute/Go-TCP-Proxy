@@ -57,9 +57,28 @@ def size_kb(text: str) -> float:
     return len(text.encode("utf-8")) / 1024
 
 
+# 注释里的字永远不会用 Nebulove 渲染，却会让子集白白多出几十个字形（内联字体越大，首屏越慢）。
+# 页面里的 /* */ 只出现在 <style> / <script> 中，// 行注释只在 <script> 里剥离——
+# <style> 里的 base64 字体数据可能含有 "//"。
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+SCRIPT_RE = re.compile(r"(<script\b[^>]*>)(.*?)(</script>)", re.DOTALL | re.IGNORECASE)
+LINE_COMMENT_RE = re.compile(r"(^|\s)//[^\n]*", re.MULTILINE)
+
+
+def strip_comments(html: str) -> str:
+    """去掉 HTML / CSS / JS 注释，只用于统计字符，不会写回页面。"""
+    html = HTML_COMMENT_RE.sub("", html)
+    html = BLOCK_COMMENT_RE.sub("", html)
+    return SCRIPT_RE.sub(
+        lambda m: m.group(1) + LINE_COMMENT_RE.sub(r"\1", m.group(2)) + m.group(3),
+        html,
+    )
+
+
 def collect_chars(html: str, extra: str) -> set[str]:
-    """页面里出现过的每个字符 + 可打印 ASCII + 兜底标点，就是子集要覆盖的字符集。"""
-    chars = set(html)
+    """页面里出现过的每个字符（不含注释）+ 可打印 ASCII + 兜底标点，就是子集要覆盖的字符集。"""
+    chars = set(strip_comments(html))
     chars.update(chr(c) for c in range(32, 127))
     chars.update(EXTRA_CHARS)
     chars.update(extra)
