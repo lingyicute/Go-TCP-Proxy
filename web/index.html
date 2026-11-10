@@ -1133,10 +1133,18 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   document.addEventListener('keydown', function(e){ if(e.key === 'Escape'){ setPopover(false); closeDrawer(); } });
 
   /* ---------- 抽屉菜单 ---------- */
-  var drawer = $('#drawer'), scrim = $('#scrim');
-  function openDrawer(){ drawer.classList.add('open'); scrim.classList.add('open'); document.body.style.overflow = 'hidden'; }
-  function closeDrawer(){ drawer.classList.remove('open'); scrim.classList.remove('open'); document.body.style.overflow = ''; }
-  $('#menuBtn').addEventListener('click', openDrawer);
+  var drawer = $('#drawer'), scrim = $('#scrim'), menuBtn = $('#menuBtn');
+  // 与取色按钮一样，让读屏软件能从 aria-expanded 得知抽屉当前是否展开
+  function setDrawer(open){
+    drawer.classList.toggle('open', open); scrim.classList.toggle('open', open);
+    document.body.style.overflow = open ? 'hidden' : '';
+    menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function openDrawer(){ setDrawer(true); }
+  function closeDrawer(){ setDrawer(false); }
+  menuBtn.setAttribute('aria-controls', 'drawer');
+  closeDrawer();
+  menuBtn.addEventListener('click', openDrawer);
   $('#drawerClose').addEventListener('click', closeDrawer);
   scrim.addEventListener('click', closeDrawer);
   $$('#drawer .nav-link').forEach(function(a){ a.addEventListener('click', closeDrawer); });
