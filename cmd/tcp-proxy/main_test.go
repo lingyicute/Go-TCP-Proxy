@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -324,6 +325,22 @@ func TestPromptPassword_NonTerminal(t *testing.T) {
 		if got := promptPassword(stdin, "p", tc.saved); got != tc.want {
 			t.Errorf("输入 %q 保存值 %q: 期望 %q, 实际 %q", tc.input, tc.saved, tc.want, got)
 		}
+	}
+}
+
+// 回归测试：在终端的密码提问处按 Ctrl+D（空行上的 EOF）应当和其它提问一样沿用现有的值；
+// 之前这里会以"无法读取输入: EOF"直接退出。
+func TestPromptPassword_TerminalEOFKeepsSaved(t *testing.T) {
+	useStdin(t, "")
+	oldRead := readPassword
+	t.Cleanup(func() { readPassword = oldRead })
+	stdinIsTerminal, readPassword = true, func(int) ([]byte, error) { return nil, io.EOF }
+
+	if got := promptPassword(stdin, "p", "saved"); got != "saved" {
+		t.Errorf("期望沿用保存的密码, 实际 %q", got)
+	}
+	if got := promptPassword(stdin, "p", ""); got != "" {
+		t.Errorf("没有保存的密码时期望得到空密码, 实际 %q", got)
 	}
 }
 

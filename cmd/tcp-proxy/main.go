@@ -71,6 +71,9 @@ var stdin = bufio.NewReader(os.Stdin)
 // 管道 / 重定向走和其它问题一样的按行读取。测试里会把它置为 false。
 var stdinIsTerminal = term.IsTerminal(int(os.Stdin.Fd()))
 
+// readPassword 在终端上读取一行不回显的输入。测试里会把它换成桩函数。
+var readPassword = term.ReadPassword
+
 type options struct {
 	configPath      string
 	listen          string
@@ -436,9 +439,11 @@ func promptPassword(r *bufio.Reader, label, saved string) string {
 		// term.ReadPassword 直接按字节读文件描述符、读到换行为止，不会越过本行预读，
 		// 所以和复用 bufio.Reader 的其它问题可以交替使用。
 		// 关闭回显后用户敲的回车不会显示出来，读完补一个换行，后面的输出才不会接在提示符后面。
-		b, err := term.ReadPassword(fd)
+		b, err := readPassword(fd)
 		fmt.Println()
-		if err != nil {
+		// 在空行上按 Ctrl+D（Windows 上是 Ctrl+Z 回车）时 ReadPassword 返回 io.EOF。其它提问（以及下面的
+		// 非终端分支）遇到 EOF 都是沿用现有的值，这里也当作直接回车，而不是以"无法读取输入: EOF"退出。
+		if err != nil && !errors.Is(err, io.EOF) {
 			log.Fatalf("错误：无法读取输入: %v", err)
 		}
 		line = string(b)
