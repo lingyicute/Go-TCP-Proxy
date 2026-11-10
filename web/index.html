@@ -1208,6 +1208,13 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   // 终端演示也会一直改 DOM。离开视口就暂停，回来再继续。
   // 只观察真正带循环动画的区块：没有动画的卡片切换 anim-off 只会白白触发整棵子树的样式重算。
   // 含 SMIL 的 svg 也在这里一次查好，免得每次进出视口都 querySelectorAll 一遍。
+  // 减少动态效果时去掉 SMIL 动画。数据包圆点没有 cx/cy，全靠 animateMotion 定位，
+  // 只删动画会让它们全部堆在 svg 左上角 (0,0)，所以连圆点一起移除；
+  // 放在下面收集 smilSvgs 之前，静止下来的 svg 和卡片就不必再被观察。
+  if(reduced){
+    $$('animateMotion').forEach(function(el){ el.parentNode.remove(); });
+    $$('animate').forEach(function(el){ el.remove(); });
+  }
   var termVisible = true, termWaiters = [];
   var smilSvgs = new Map();
   var animIO = new IntersectionObserver(function(entries){
@@ -1239,7 +1246,6 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   /* ---------- 终端打字机演示 ---------- */
   var linesEl = $('#termLines'), termBody = $('#termBody');
   var runId = 0;
-  if(reduced){ $$('animateMotion, animate').forEach(function(el){ el.remove(); }); }
 
   // 终端框高度固定、溢出裁剪：窄屏上长句会折行，十几行内容就超出 340px，
   // 最后那句「✓ 全双工转发中」被裁在框外。每次改完 DOM（紧接着总会 sleep）就贴底，
