@@ -1282,12 +1282,15 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     async function ask(q, typed){
       var l = line();
       var qs = document.createElement('span'); qs.className = 't-p'; qs.textContent = q; l.appendChild(qs);
+      // 输入值放在一个常驻的文本节点里逐字 appendData：textContent += 每敲一个字都要
+      // 读出整段字符串、拼接，再销毁旧文本节点换一个新的，文本越长越浪费
       var vs = document.createElement('span'); vs.className = 't-i'; l.appendChild(vs);
+      var vt = vs.appendChild(document.createTextNode(''));
       l.appendChild(caret);
       await sleep(reduced ? 40 : 620); if(!alive()) return false;
       if(typed){
         for(var i = 0; i < typed.length; i++){
-          vs.textContent += typed[i];
+          vt.appendData(typed[i]);
           await sleep(reduced ? 8 : 55 + Math.random() * 65);
           if(!alive()) return false;
         }
