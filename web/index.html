@@ -605,6 +605,16 @@ window.GTP = (function(){
 @keyframes loaderSpin{ to{ transform:rotate(360deg); } }
 @media (prefers-reduced-motion: reduce){ #loader .spin{ animation-duration:.01ms; } }
 </style>
+<noscript>
+<!-- 脚本被禁用时：加载层没人来撤、滚动显现没人触发、手风琴点不开，整页只剩一块空白。
+     直接把内容亮出来，并收起离了脚本就没用的控件（取色 / 明暗 / 菜单按钮、复制按钮、终端演示） -->
+<style>
+#loader, #paletteBtn, #themeBtn, #menuBtn, #terminal, .ccopy, .chev{ display:none; }
+.reveal{ opacity:1; transform:none; }
+.acc-body{ grid-template-rows:1fr; }
+.acc-inner{ visibility:visible; }
+</style>
+</noscript>
 </head>
 <body id="home">
 
