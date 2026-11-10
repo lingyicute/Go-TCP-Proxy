@@ -546,9 +546,11 @@ window.GTP = (function(){
     var s = JSON.parse(localStorage.getItem(LS));
     if(s && typeof s.seed === 'number'){ state.seed = Math.abs(s.seed) % SEEDS.length; state.dark = !!s.dark; state.saved = true; }
   }catch(e){}
+  var themingTimer;
   function apply(animate){
     var sd = SEEDS[state.seed], pal = palette(sd.h, sd.s, state.dark), r = document.documentElement, k;
-    if(animate){ r.classList.add('theming'); setTimeout(function(){ r.classList.remove('theming'); }, 460); }
+    // 连续切换时先取消上一次的定时器：否则它会在新一轮过渡进行到一半时摘掉 theming，颜色直接跳变
+    if(animate){ r.classList.add('theming'); clearTimeout(themingTimer); themingTimer = setTimeout(function(){ r.classList.remove('theming'); }, 460); }
     for(k in pal) r.style.setProperty('--'+k, H(pal[k][0], pal[k][1], pal[k][2]));
     r.classList.toggle('dark', state.dark);
     var m = document.querySelector('meta[name="theme-color"]');
