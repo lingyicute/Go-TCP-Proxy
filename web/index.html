@@ -38,8 +38,11 @@
 }
 html.dark{ color-scheme: dark; }
 
-/* 主题切换期间的全局色彩过渡 */
-html.theming, html.theming *{ transition: background-color .38s ease, color .38s ease, border-color .38s ease, fill .38s ease, stroke .38s ease, box-shadow .38s ease !important; }
+/* 主题切换期间的色彩过渡。theming 除了挂在 html 上（只管 body 的底色），就只挂给当时与视口相交的顶层区块（见 apply()）：
+   过渡期间每一帧都要给每个带过渡的元素重算一次样式，全页九百多个元素一起渐变时主线程几乎被占满；
+   视口外的区块反正看不见，直接跳到新颜色即可 */
+html.theming > body{ transition:background-color .38s ease !important; }
+body .theming, body .theming *{ transition: background-color .38s ease, color .38s ease, border-color .38s ease, fill .38s ease, stroke .38s ease, box-shadow .38s ease !important; }
 /* 上面的 !important 会把组件自己的 transition 整个盖掉，而明暗切换恰好总是发生在 theming 期间：
    不单独放行的话，日月图标的旋转与淡出永远没有机会播放 */
 html.theming #themeBtn .sun-moon svg{ transition:transform .45s cubic-bezier(.2,0,0,1), opacity .3s !important; }
@@ -579,11 +582,23 @@ window.GTP = (function(){
       state.seed = s.seed; state.dark = !!s.dark; state.saved = true;
     }
   }catch(e){}
-  var themingTimer;
+  var themingTimer, themed = [];
+  function unmark(){ themed.forEach(function(el){ el.classList.remove('theming'); }); }
   function apply(animate){
     var sd = SEEDS[state.seed], pal = palette(sd.h, sd.s, state.dark), r = document.documentElement, k;
-    // 连续切换时先取消上一次的定时器：否则它会在新一轮过渡进行到一半时摘掉 theming，颜色直接跳变
-    if(animate){ r.classList.add('theming'); clearTimeout(themingTimer); themingTimer = setTimeout(function(){ r.classList.remove('theming'); }, 460); }
+    if(animate){
+      // 过渡只挂给 html 和此刻与视口相交的顶层区块，视口外的直接换色（原因见 theming 的样式注释）
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var vis = Array.prototype.filter.call(document.querySelectorAll('body > :not(main), main > *'), function(el){
+        var b = el.getBoundingClientRect(); return b.bottom > 0 && b.top < vh && b.right > 0 && b.left < vw;
+      });
+      // 连续切换时先取消上一次的定时器：否则它会在新一轮过渡进行到一半时摘掉 theming，颜色直接跳变。
+      // 上一轮的标记也要等量完位置再换：摘掉与重新挂上之间夹一次强制样式计算，进行到一半的过渡同样会被掐断
+      clearTimeout(themingTimer); unmark();
+      themed = [r].concat(vis);
+      themed.forEach(function(el){ el.classList.add('theming'); });
+      themingTimer = setTimeout(unmark, 460);
+    }
     for(k in pal) r.style.setProperty('--'+k, H(pal[k][0], pal[k][1], pal[k][2]));
     r.classList.toggle('dark', state.dark);
     var m = document.querySelector('meta[name="theme-color"]');
