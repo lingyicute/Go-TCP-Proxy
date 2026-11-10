@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +63,10 @@ func Load(path string) (Config, error) {
 		}
 		return Defaults, fmt.Errorf("读取配置文件 %s: %w", path, err)
 	}
+
+	// Windows 记事本、PowerShell 5 的 Set-Content -Encoding UTF8 保存时会在文件开头写入 UTF-8 BOM，
+	// 而 encoding/json 不认它：手动编辑过的配置不应因此变成"解析失败"。
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 
 	cfg := Defaults
 	if err := json.Unmarshal(data, &cfg); err != nil {
