@@ -1169,7 +1169,8 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   $$('.ccopy').forEach(function(btn){
     var resetTimer;
     btn.addEventListener('click', function(){
-      var code = btn.closest('.codecard').querySelector('code').innerText;
+      // <pre> 里的空白原样保留，textContent 与 innerText 结果一致，但不会像 innerText 那样强制同步布局
+      var code = btn.closest('.codecard').querySelector('code').textContent;
       function done(){
         btn.classList.add('done');
         btn.innerHTML = '<svg class="ic"><use href="#i-check"/></svg>已复制';
