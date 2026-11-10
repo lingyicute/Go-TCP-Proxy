@@ -1224,6 +1224,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   function finish(){
     if(faded) return;
     faded = true;
+    clearTimeout(timer);
     loader.classList.add('done');
     loader.addEventListener('transitionend', function(){ loader.remove(); });
     // 兜底：若 transition 未触发，稍后移除
@@ -1234,7 +1235,7 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   //   于是这个兜底从来没有真正移除过覆盖层。）
   var timer = setTimeout(finish, 6000);
   function ready(){
-    clearTimeout(timer);
+    // 不要在这里清掉兜底计时器：load / 字体可能迟迟不结束，6 秒兜底必须一直有效。
     var pending = [];
     if(document.readyState !== 'complete') pending.push(new Promise(function(res){ window.addEventListener('load', res, { once:true }); }));
     if(document.fonts && document.fonts.ready) pending.push(document.fonts.ready.catch(function(){}));
