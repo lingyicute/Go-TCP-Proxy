@@ -1226,18 +1226,21 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   // 终端演示也会一直改 DOM。离开视口就暂停，回来再继续。
   // 只观察真正带循环动画的区块：没有动画的卡片切换 anim-off 只会白白触发整棵子树的样式重算。
   var termVisible = true, termWaiters = [];
+  // 终端演示只在「区块在视口内、且标签页在前台」时继续。切到后台后 CSS 动画会被浏览器自动停掉，
+  // 定时器却只是降频：打字机照样每秒改一次 DOM、在 follow() 里强制一次同步布局，没有人看得到。
+  function termActive(){ return termVisible && !document.hidden; }
+  function resumeTerm(){
+    if(!termActive() || !termWaiters.length) return;
+    var waiters = termWaiters;
+    termWaiters = [];
+    waiters.forEach(function(resume){ resume(); });
+  }
+  document.addEventListener('visibilitychange', resumeTerm);
   var animIO = new IntersectionObserver(function(entries){
     entries.forEach(function(en){
       var el = en.target, on = en.isIntersecting;
       el.classList.toggle('anim-off', !on);
-      if(el.id === 'terminal'){
-        termVisible = on;
-        if(on && termWaiters.length){
-          var waiters = termWaiters;
-          termWaiters = [];
-          waiters.forEach(function(resume){ resume(); });
-        }
-      }
+      if(el.id === 'terminal'){ termVisible = on; resumeTerm(); }
     });
   }, { rootMargin:'100px 0px' });
   $$('.hero, #terminal, .card').forEach(function(el){
@@ -1257,9 +1260,9 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     follow();
     return new Promise(function(res){
       setTimeout(function(){
-        // 定时器到期时已经离屏，就只登记恢复点，不继续打字或开始下一轮。
+        // 定时器到期时已经离屏（或标签页在后台），就只登记恢复点，不继续打字或开始下一轮。
         // 用队列而不是单个回调：重播产生的已取消任务也能被释放，不会永久挂住。
-        if(termVisible) res(); else termWaiters.push(res);
+        if(termActive()) res(); else termWaiters.push(res);
       }, ms);
     });
   }
