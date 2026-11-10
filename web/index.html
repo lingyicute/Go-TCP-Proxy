@@ -475,7 +475,8 @@ footer{ background:var(--surface-cll); border-top:1px solid var(--outline-varian
   .tb-nav{ display:none; }
   /* GitHub 按钮收起文字，变成纯图标圆形按钮 */
   .btn-gh .gh-txt{ display:none; }
-  .btn-gh{ width:42px; height:42px; padding:0; }
+  /* 要带上 .btn 才压得过 .btn.sm（两个类）：只写 .btn-gh 时 height / padding 不生效，按钮是 42×40 的药丸而不是正圆 */
+  .btn.btn-gh{ width:42px; height:42px; padding:0; }
   #menuBtn{ display:grid; }
 }
 @media (max-width:660px){
