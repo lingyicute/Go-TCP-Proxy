@@ -234,6 +234,9 @@ html:not(.dark) .icon-moon{ transform:rotate(-90deg) scale(.4); opacity:0; }
   padding:20px 22px 26px; height:392px; overflow:hidden;
   font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;
   color:var(--code-text); transition:opacity .5s;
+  /* 高度固定、溢出裁剪，里面怎么变都影响不到外面：声明成独立的布局 / 绘制根，
+     打字机每敲一个字只需重排终端框内部，不必从文档根开始重新走一遍布局 */
+  contain:strict;
 }
 @media (max-width:640px){ .term-body{ height:340px; font-size:11.5px; } }
 .tl{ white-space:pre-wrap; word-break:break-all; min-height:1.85em; }
