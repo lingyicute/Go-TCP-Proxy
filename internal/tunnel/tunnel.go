@@ -403,6 +403,15 @@ func (s *Server) pipe(ss *session, dst, src *net.TCPConn, direction string) {
 // errIdleTimeout 表示整条会话在 IdleTimeout 内没有任何数据流动。
 var errIdleTimeout = errors.New("会话空闲超时")
 
+// copyBufPool 复用 copyWithIdleTimeout 的搬运缓冲区：每条会话两个方向各要 32 KiB，
+// 短连接多的场景下每次都 make 会给 GC 带来可观的压力。存指针以免 Put 时发生额外分配。
+var copyBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 32*1024)
+		return &b
+	},
+}
+
 // copyWithIdleTimeout 是 io.Copy 的带空闲超时版本，用的是 net.Conn 文档推荐的做法：
 // 每次读写前把 deadline 重设为 "最近活跃时刻 + idle"。
 //
@@ -415,7 +424,9 @@ func copyWithIdleTimeout(ss *session, dst, src *net.TCPConn, idle time.Duration)
 	stillActive := func(err error) bool {
 		return errors.Is(err, os.ErrDeadlineExceeded) && time.Since(ss.activeAt()) < idle
 	}
-	buf := make([]byte, 32*1024)
+	bp := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(bp)
+	buf := *bp
 	for {
 		if err := src.SetReadDeadline(ss.activeAt().Add(idle)); err != nil {
 			return err
