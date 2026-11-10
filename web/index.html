@@ -1193,13 +1193,15 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   /* ---------- 离屏暂停动画 ---------- */
   // 无限循环的 CSS / SMIL 动画在看不见时依旧每帧消耗样式计算、合成与重绘；
   // 终端演示也会一直改 DOM。离开视口就暂停，回来再继续。
+  // 只观察真正带循环动画的区块：没有动画的卡片切换 anim-off 只会白白触发整棵子树的样式重算。
+  // 含 SMIL 的 svg 也在这里一次查好，免得每次进出视口都 querySelectorAll 一遍。
   var termVisible = true, termWaiters = [];
+  var smilSvgs = new Map();
   var animIO = new IntersectionObserver(function(entries){
     entries.forEach(function(en){
       var el = en.target, on = en.isIntersecting;
       el.classList.toggle('anim-off', !on);
-      Array.prototype.forEach.call(el.querySelectorAll('svg'), function(svg){
-        if(!svg.querySelector('animate, animateMotion')) return;
+      smilSvgs.get(el).forEach(function(svg){
         if(on) svg.unpauseAnimations(); else svg.pauseAnimations();
       });
       if(el.id === 'terminal'){
@@ -1212,7 +1214,14 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
       }
     });
   }, { rootMargin:'100px 0px' });
-  $$('.hero, #terminal, .card').forEach(function(el){ animIO.observe(el); });
+  $$('.hero, #terminal, .card').forEach(function(el){
+    var svgs = Array.prototype.filter.call(el.querySelectorAll('svg'), function(svg){
+      return !!svg.querySelector('animate, animateMotion');
+    });
+    if(el.classList.contains('card') && !svgs.length && !el.querySelector('.duplex, .drainbar')) return;
+    smilSvgs.set(el, svgs);
+    animIO.observe(el);
+  });
 
   /* ---------- 终端打字机演示 ---------- */
   var linesEl = $('#termLines'), termBody = $('#termBody');
