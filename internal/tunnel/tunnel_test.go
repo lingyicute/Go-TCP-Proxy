@@ -311,6 +311,21 @@ func TestNew_ValidatesAddresses(t *testing.T) {
 	}
 }
 
+// 回归测试：config 的校验接受 "host:ssh" 这样的服务名端口，但 x/net 的 SOCKS5 握手只认数字，
+// 旧实现原样传下去，于是服务能启动、每一条连接却都在握手时失败。
+func TestNew_ResolvesServiceNamePort(t *testing.T) {
+	srv, err := New(Options{RemoteAddr: "example.com:http", SocksAddr: "127.0.0.1:1080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srv.opts.RemoteAddr != "example.com:80" {
+		t.Errorf("服务名端口应换算成数字, 实际 %q", srv.opts.RemoteAddr)
+	}
+	if _, err := New(Options{RemoteAddr: "example.com:no-such-service", SocksAddr: "127.0.0.1:1080"}); err == nil {
+		t.Error("无法解析的端口应在启动时报错")
+	}
+}
+
 func TestBidirectionalEcho(t *testing.T) {
 	socks := newSocksServer(t)
 	echo := echoServer(t)

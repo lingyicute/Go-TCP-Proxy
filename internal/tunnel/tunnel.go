@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -135,9 +136,18 @@ type socksDialer interface {
 
 // New 校验参数并创建 Server。
 func New(opts Options) (*Server, error) {
-	if _, _, err := net.SplitHostPort(opts.RemoteAddr); err != nil {
+	host, port, err := net.SplitHostPort(opts.RemoteAddr)
+	if err != nil {
 		return nil, fmt.Errorf("远程目标地址无效 %q: %w", opts.RemoteAddr, err)
 	}
+	// SOCKS5 请求里的端口是 2 字节整数，x/net 握手时直接用 strconv.Atoi 解析它：
+	// "example.com:ssh" 这样的服务名能通过 config 的校验（net.LookupPort 认识它），
+	// 却会让之后每一条连接都在握手阶段失败，所以启动时就换算成数字端口。
+	portNum, err := net.LookupPort("tcp", port)
+	if err != nil {
+		return nil, fmt.Errorf("远程目标地址无效 %q: %w", opts.RemoteAddr, err)
+	}
+	opts.RemoteAddr = net.JoinHostPort(host, strconv.Itoa(portNum))
 	if _, _, err := net.SplitHostPort(opts.SocksAddr); err != nil {
 		return nil, fmt.Errorf("Socks5 代理地址无效 %q: %w", opts.SocksAddr, err)
 	}
