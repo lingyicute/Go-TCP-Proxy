@@ -415,10 +415,28 @@ func promptPassword(r *bufio.Reader, label, saved string) string {
 	}
 	var line string
 	if stdinIsTerminal {
+		fd := int(os.Stdin.Fd())
+		// 回显关闭期间按 Ctrl+C，进程会被信号直接终止，ReadPassword 里恢复终端的 defer 没有机会运行，
+		// 留给用户一个敲什么都不显示的 shell。读密码期间自己接住信号，先恢复终端再退出。
+		if state, err := term.GetState(fd); err == nil {
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			done := make(chan struct{})
+			go func() {
+				select {
+				case <-sigCh:
+					term.Restore(fd, state)
+					fmt.Println()
+					os.Exit(1)
+				case <-done:
+				}
+			}()
+			defer func() { signal.Stop(sigCh); close(done) }()
+		}
 		// term.ReadPassword 直接按字节读文件描述符、读到换行为止，不会越过本行预读，
 		// 所以和复用 bufio.Reader 的其它问题可以交替使用。
 		// 关闭回显后用户敲的回车不会显示出来，读完补一个换行，后面的输出才不会接在提示符后面。
-		b, err := term.ReadPassword(int(os.Stdin.Fd()))
+		b, err := term.ReadPassword(fd)
 		fmt.Println()
 		if err != nil {
 			log.Fatalf("错误：无法读取输入: %v", err)
