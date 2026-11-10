@@ -1134,7 +1134,11 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   var swatchEls = $$('#swatches > .swatch, #swatchesM > .swatch'), seedNameEl = $('#seedName'), themeBtn = $('#themeBtn');
   window.GTP_UI = function(state){
     var n = G.SEEDS.length;
-    swatchEls.forEach(function(el, i){ el.classList.toggle('on', i % n === state.seed); });
+    // 选中态不能只靠色块上的对勾图标：读屏软件要从 aria-pressed 才知道当前用的是哪一颗种子色
+    swatchEls.forEach(function(el, i){
+      var on = i % n === state.seed;
+      el.classList.toggle('on', on); el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
     if(seedNameEl) seedNameEl.textContent = G.SEEDS[state.seed].n;
     themeBtn.setAttribute('aria-label', state.dark ? '切换到浅色主题' : '切换到深色主题');
   };
