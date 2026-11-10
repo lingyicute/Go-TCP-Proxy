@@ -257,8 +257,6 @@ h2{ font-size:clamp(1.85rem, 4vw, 2.7rem); font-weight:800; letter-spacing:-0.01
   background:var(--surface-cll); border-radius:44px; padding:80px 0;
   border:1px solid var(--outline-variant);
 }
-.reveal{ opacity:0; transform:translateY(26px); transition:opacity .7s ease, transform .7s cubic-bezier(.2,0,0,1); }
-.reveal.in{ opacity:1; transform:none; }
 
 /* ============ 特性 Bento ============ */
 .bento{ display:grid; grid-template-columns:repeat(12,1fr); gap:20px; }
@@ -429,6 +427,13 @@ footer{ background:var(--surface-cll); border-top:1px solid var(--outline-varian
 }
 #fab.show{ opacity:1; transform:none; pointer-events:auto; }
 #fab:hover{ box-shadow:0 14px 32px -8px rgb(0 0 0/.45); }
+
+/* ============ 滚动显现 ============ */
+/* 必须放在 .card / .step / .acc 等组件样式之后：它们各自声明了 transition，
+   同优先级下写在前面的 .reveal 会被覆盖，淡入时 opacity 直接跳变。
+   显现结束后 JS 会移除 reveal，组件自己的 transition 随即恢复。 */
+.reveal{ opacity:0; transform:translateY(26px); transition:opacity .7s ease, transform .7s cubic-bezier(.2,0,0,1); }
+.reveal.in{ opacity:1; transform:none; }
 
 /* ============ 响应式 ============ */
 @media (max-width:1020px){
@@ -1100,9 +1105,21 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   fab.addEventListener('click', function(){ window.scrollTo({ top:0, behavior: reduced ? 'auto' : 'smooth' }); });
 
   /* ---------- 滚动显现 ---------- */
+  // 显现结束后撤掉 reveal 与内联的 transitionDelay：否则卡片等元素自己的 hover 过渡
+  // 会一直被 .reveal 的 transition 盖住，并且永远带着 0~195ms 的延迟。
+  function settle(el){ el.classList.remove('reveal', 'in'); el.style.transitionDelay = ''; }
   var io = new IntersectionObserver(function(entries){
     entries.forEach(function(en){
-      if(en.isIntersecting){ en.target.classList.add('in'); io.unobserve(en.target); }
+      if(!en.isIntersecting) return;
+      var el = en.target;
+      io.unobserve(el);
+      el.addEventListener('transitionend', function onEnd(e){
+        if(e.target !== el || e.propertyName !== 'opacity') return;
+        el.removeEventListener('transitionend', onEnd);
+        settle(el);
+      });
+      setTimeout(function(){ settle(el); }, 1000); // 兜底：减少动态效果等情况下不会有 transitionend
+      el.classList.add('in');
     });
   }, { threshold:.12, rootMargin:'0px 0px -6% 0px' });
   $$('.reveal').forEach(function(el, i){
