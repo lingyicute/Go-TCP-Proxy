@@ -1074,16 +1074,17 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   }
   buildSwatches($('#swatches')); buildSwatches($('#swatchesM'));
 
+  // 每次换色 / 切换明暗都会调用：色块、名称和主题按钮在这里一次查好，不必每次重新 querySelectorAll
+  var swatchEls = $$('#swatches > .swatch, #swatchesM > .swatch'), seedNameEl = $('#seedName'), themeBtn = $('#themeBtn');
   window.GTP_UI = function(state){
-    $$('.swatches, .dr-seeds').forEach(function(box){
-      Array.prototype.forEach.call(box.children, function(el, i){ el.classList.toggle('on', i === state.seed); });
-    });
-    var nameEl = $('#seedName'); if(nameEl) nameEl.textContent = G.SEEDS[state.seed].n;
-    $('#themeBtn').setAttribute('aria-label', state.dark ? '切换到浅色主题' : '切换到深色主题');
+    var n = G.SEEDS.length;
+    swatchEls.forEach(function(el, i){ el.classList.toggle('on', i % n === state.seed); });
+    if(seedNameEl) seedNameEl.textContent = G.SEEDS[state.seed].n;
+    themeBtn.setAttribute('aria-label', state.dark ? '切换到浅色主题' : '切换到深色主题');
   };
   window.GTP_UI(G.state);
 
-  $('#themeBtn').addEventListener('click', function(){ G.state.dark = !G.state.dark; G.save(); G.apply(true); });
+  themeBtn.addEventListener('click', function(){ G.state.dark = !G.state.dark; G.save(); G.apply(true); });
 
   /* ---------- 取色弹层 ---------- */
   var popover = $('#popover'), paletteBtn = $('#paletteBtn');
