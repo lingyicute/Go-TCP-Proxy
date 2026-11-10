@@ -534,6 +534,14 @@ footer{ background:var(--surface-cll); border-top:1px solid var(--outline-varian
   /* 数据包没有动画就只是停在线段起点的几个圆点，干脆不显示；脉冲环留作静态描边 */
   .pkt{ display:none; }
 }
+/* 打印 / 另存为 PDF 时没有滚动可言：还没滚到的区块停在 reveal 的透明初始态，收起的答案高度为 0，印出来大片空白。
+   transition 一并关掉：切到打印样式的那一刻版面就定格了，过渡刚起步，印出来的仍是初始态 */
+@media print{
+  .reveal{ opacity:1; transform:none; transition:none; }
+  .acc-body{ grid-template-rows:1fr; transition:none; }
+  .acc-inner{ visibility:visible; transition:none; }
+  #fab{ display:none; }
+}
 </style>
 <style>
 body {
