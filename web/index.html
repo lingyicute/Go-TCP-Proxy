@@ -1167,12 +1167,15 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
 
   /* ---------- 复制 ---------- */
   $$('.ccopy').forEach(function(btn){
+    var resetTimer;
     btn.addEventListener('click', function(){
       var code = btn.closest('.codecard').querySelector('code').innerText;
       function done(){
         btn.classList.add('done');
         btn.innerHTML = '<svg class="ic"><use href="#i-check"/></svg>已复制';
-        setTimeout(function(){
+        // 连续点击时重新计时：否则上一次的定时器会提前把这次的「已复制」撤掉
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(function(){
           btn.classList.remove('done');
           btn.innerHTML = '<svg class="ic"><use href="#i-copy"/></svg>复制';
         }, 1600);
