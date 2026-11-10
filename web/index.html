@@ -1062,11 +1062,11 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
         <div class="acc-body"><div class="acc-inner"><p>支持 RFC 1929 的用户名/密码认证：交互模式下在"是否需要用户名/密码认证"回答 y，然后输入用户名和密码（密码不回显）；非交互模式用 <code class="inline-code">-socks-user</code> 配合 <code class="inline-code">-socks-password</code> 或环境变量 <code class="inline-code">TCP_PROXY_SOCKS_PASSWORD</code>。凭据会随配置保存在 config.json（0600）里，不想落盘就加 <code class="inline-code">--no-save</code>；换成不需要认证的代理后，残留的凭据不会被发送。</p></div></div>
       </div>
       <div class="acc reveal">
-        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>启动时提示「无法监听本地端口」？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>启动时提示「无法监听本地地址」？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
         <div class="acc-body"><div class="acc-inner"><p>多半是端口被占用了，换一个端口试试；在 Linux / macOS 上监听 1024 以下的端口还需要管理员权限。</p></div></div>
       </div>
       <div class="acc reveal">
-        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>提示「通过代理连接到 … 失败」？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
+        <button class="acc-head" data-ripple aria-expanded="false"><span class="q-ico">Q</span>提示「通过代理连接 … 失败」？<svg class="ic chev"><use href="#i-chevron"/></svg></button>
         <div class="acc-body"><div class="acc-inner"><p>请先确认 Socks5 代理本身在运行且地址填写正确，再确认代理能够访问到远程目标。</p></div></div>
       </div>
       <div class="acc reveal">
