@@ -156,6 +156,10 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	// 与 tunnel.New 的回退规则保持一致：<= 0 实际按默认值等待，退出日志里不应显示 "最多等待 0s"。
+	if opts.shutdownTimeout <= 0 {
+		opts.shutdownTimeout = tunnel.DefaultShutdownTimeout
+	}
 
 	// 先启动监听，成功之后再把配置落盘——避免把错误的地址记成下次的默认值
 	srv, err := tunnel.New(tunnel.Options{
