@@ -294,11 +294,12 @@ h2{ font-size:clamp(1.85rem, 4vw, 2.7rem); font-weight:800; letter-spacing:-0.01
 .duplex{ display:flex; flex-direction:column; gap:10px; }
 .dup{ display:flex; align-items:center; gap:12px; background:var(--surface-c); border-radius:14px; padding:10px 16px; overflow:hidden; }
 .dup .lbl{ font-size:11px; font-weight:800; letter-spacing:.08em; color:var(--on-surface-variant); flex:none; width:52px; }
-.dup .track{ flex:1; position:relative; height:20px; }
-.dup .arr{ position:absolute; top:0; color:var(--primary); animation:slideR 2.4s ease-in-out infinite; }
-.dup.rev .arr{ color:var(--tertiary); animation:slideL 2.4s ease-in-out infinite; }
-@keyframes slideR{ 0%{ left:0; opacity:0 } 15%{opacity:1} 85%{opacity:1} 100%{ left:calc(100% - 20px); opacity:0 } }
-@keyframes slideL{ 0%{ right:0; opacity:0 } 15%{opacity:1} 85%{opacity:1} 100%{ right:calc(100% - 20px); opacity:0 } }
+/* 箭头用 transform 平移（100cqw = 轨道宽度），而不是逐帧改 left/right 触发重新布局 */
+.dup .track{ flex:1; position:relative; height:20px; container-type:inline-size; }
+.dup .arr{ position:absolute; top:0; left:0; color:var(--primary); animation:slideR 2.4s ease-in-out infinite; }
+.dup.rev .arr{ left:auto; right:0; color:var(--tertiary); animation:slideL 2.4s ease-in-out infinite; }
+@keyframes slideR{ 0%{ transform:translateX(0); opacity:0 } 15%{opacity:1} 85%{opacity:1} 100%{ transform:translateX(calc(100cqw - 20px)); opacity:0 } }
+@keyframes slideL{ 0%{ transform:translateX(0); opacity:0 } 15%{opacity:1} 85%{opacity:1} 100%{ transform:translateX(calc(20px - 100cqw)); opacity:0 } }
 .kbdrow{ display:flex; align-items:center; gap:10px; }
 kbd.big{
   font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600;
@@ -306,12 +307,14 @@ kbd.big{
   border-radius:10px; padding:7px 14px; color:var(--on-surface);
 }
 .drainbar{ height:8px; border-radius:99px; background:var(--surface-chh); overflow:hidden; margin-top:16px; position:relative; }
+/* 光带是一个 220% 宽的伪元素，用 transform 从左侧完全移出的位置扫到右侧完全移出的位置：
+   合成器即可完成，不必像动画 background-position 那样每帧重绘。 */
 .drainbar::after{
-  content:""; position:absolute; inset:0; border-radius:99px;
+  content:""; position:absolute; top:0; bottom:0; left:0; width:220%;
   background:linear-gradient(100deg, transparent 20%, var(--primary) 45%, var(--tertiary) 60%, transparent 80%);
-  background-size:220% 100%; animation:shimmer 2.6s linear infinite;
+  animation:shimmer 2.6s linear infinite;
 }
-@keyframes shimmer{ from{ background-position:180% 0 } to{ background-position:-80% 0 } }
+@keyframes shimmer{ from{ transform:translateX(-100%) } to{ transform:translateX(45.5%) } }
 .draintxt{ font-size:12px; color:var(--on-surface-variant); margin-top:9px; display:flex; gap:7px; align-items:center; }
 .draintxt .ic{ width:13px; height:13px; color:var(--tertiary); }
 .plat-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
