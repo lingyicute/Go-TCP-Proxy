@@ -1109,6 +1109,9 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
   /* ---------- 涟漪 ---------- */
   if(!reduced){
     document.addEventListener('pointerdown', function(e){
+      // 只响应主键（触摸、笔尖也是 0）：右键开菜单、中键在新标签页打开链接都不算「按下按钮」，
+      // 不该插入涟漪节点、读取布局
+      if(e.button !== 0) return;
       var el = e.target.closest('[data-ripple]'); if(!el) return;
       var r = el.getBoundingClientRect();
       var d = Math.max(r.width, r.height) * 2.4;
