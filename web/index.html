@@ -437,6 +437,8 @@ footer{ background:var(--surface-cll); border-top:1px solid var(--outline-varian
    显现结束后 JS 会移除 reveal，组件自己的 transition 随即恢复。 */
 .reveal{ opacity:0; transform:translateY(26px); transition:opacity .7s ease, transform .7s cubic-bezier(.2,0,0,1); }
 .reveal.in{ opacity:1; transform:none; }
+/* 离开视口的区块暂停无限循环动画（JS 用 IntersectionObserver 切换），省去模糊光斑、背景模糊等持续的合成与重绘 */
+.anim-off, .anim-off *, .anim-off *::before, .anim-off *::after{ animation-play-state:paused !important; }
 
 /* ============ 响应式 ============ */
 @media (max-width:1020px){
@@ -1173,6 +1175,26 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     });
   });
 
+  /* ---------- 离屏暂停动画 ---------- */
+  // 无限循环的 CSS / SMIL 动画在看不见时依旧每帧消耗样式计算、合成与重绘；
+  // 终端演示也会一直改 DOM。离开视口就暂停，回来再继续。
+  var termVisible = true, resumeTerm = null;
+  var animIO = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      var el = en.target, on = en.isIntersecting;
+      el.classList.toggle('anim-off', !on);
+      Array.prototype.forEach.call(el.querySelectorAll('svg'), function(svg){
+        if(!svg.querySelector('animate, animateMotion')) return;
+        if(on) svg.unpauseAnimations(); else svg.pauseAnimations();
+      });
+      if(el.id === 'terminal'){
+        termVisible = on;
+        if(on && resumeTerm){ var r = resumeTerm; resumeTerm = null; r(); }
+      }
+    });
+  }, { rootMargin:'100px 0px' });
+  $$('.hero, #terminal, .card').forEach(function(el){ animIO.observe(el); });
+
   /* ---------- 终端打字机演示 ---------- */
   var linesEl = $('#termLines'), termBody = $('#termBody');
   var runId = 0;
@@ -1229,6 +1251,10 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
     await sleep(reduced ? 2500 : 3800); if(!alive()) return;
     termBody.style.opacity = 0;
     await sleep(reduced ? 100 : 620); if(!alive()) return;
+    if(!termVisible){ // 不在视口内就不开始下一轮，等滚回来再播放
+      await new Promise(function(res){ resumeTerm = res; });
+      if(!alive()) return;
+    }
     runType(id);
   }
   runType(++runId);
