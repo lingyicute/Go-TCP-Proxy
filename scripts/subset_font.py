@@ -92,7 +92,6 @@ def fetch_font(local: Path | None, url: str, refresh: bool) -> tuple[Path, bool]
             die(f"font file not found: {local}")
         return local, False
 
-    CACHE_TTF.parent.mkdir(parents=True, exist_ok=True)
     if CACHE_TTF.is_file() and not refresh:
         log(
             f"使用缓存字体 {CACHE_TTF}（{CACHE_TTF.stat().st_size / 1024 / 1024:.2f} MB）"
@@ -115,10 +114,11 @@ def fetch_font(local: Path | None, url: str, refresh: bool) -> tuple[Path, bool]
         tmp.unlink(missing_ok=True)
         die("下载到的字体文件过小，可能拿到了错误页面。")
     try:  # 放进缓存，下次（或 CI 下一次）就不必重新下载
+        CACHE_TTF.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(tmp, CACHE_TTF)
         log(f"已缓存到 {CACHE_TTF}")
     except OSError:
-        pass
+        CACHE_TTF.unlink(missing_ok=True)
     return tmp, True
 
 
