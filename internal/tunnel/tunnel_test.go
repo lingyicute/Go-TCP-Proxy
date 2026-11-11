@@ -447,6 +447,22 @@ func TestDialFailureClosesClient(t *testing.T) {
 	waitFor(t, "连接计数归零", func() bool { return srv.ActiveConns() == 0 })
 }
 
+// 代理连不上远程目标时在 CONNECT 应答里报告失败，x/net 把它叫作 "unknown error connection refused"；
+// 日志应说明问题出在"代理 -> 远程目标"这一段，而不是让用户对着 unknown error 去怀疑代理本身。
+func TestDialFailure_ProxyReplyErrorIsReportedWithHint(t *testing.T) {
+	socks := newSocksServer(t)
+	dead, _ := net.Listen("tcp", "127.0.0.1:0")
+	deadAddr := dead.Addr().String()
+	dead.Close()
+	logs := &logBuffer{}
+	srv, ln := startTunnel(t, Options{RemoteAddr: deadAddr, SocksAddr: socks.addr(), Logger: log.New(logs, "", 0)})
+
+	got := expectClosedByTunnel(t, srv, ln, logs)
+	if !strings.Contains(got, "connection refused") || !strings.Contains(got, "它没能连到远程目标") {
+		t.Errorf("日志应带上代理报告的原因并提示检查远程目标，实际:\n%s", got)
+	}
+}
+
 // 回归测试：旧实现的拨号没有超时，SOCKS 服务器只接受 TCP 不回应时 goroutine 永久挂起。
 func TestDialTimeout(t *testing.T) {
 	socks := newSocksServerWith(t, true) // 只接受 TCP，不回应握手

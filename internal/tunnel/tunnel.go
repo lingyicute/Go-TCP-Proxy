@@ -381,7 +381,7 @@ func (s *Server) handle(ss *session) {
 	s.logger.Printf("客户端 %s 的连接已关闭", peer)
 }
 
-// dialErrorHint 把 x/net 返回的几种认证相关错误翻译成用户能直接行动的提示。
+// dialErrorHint 把 x/net 返回的几种含义明确的错误翻译成用户能直接行动的提示。
 // 匹配的是 x/net 的错误文本（没有导出的哨兵错误可用），匹配不上时返回空串，不影响原始错误的输出。
 func (s *Server) dialErrorHint(err error) string {
 	msg := err.Error()
@@ -393,6 +393,10 @@ func (s *Server) dialErrorHint(err error) string {
 		return "（代理既不接受无认证也不接受用户名/密码认证）"
 	case strings.Contains(msg, "username/password authentication failed"):
 		return "（代理拒绝了配置的用户名/密码，请检查凭据）"
+	case strings.Contains(msg, "unknown error "):
+		// 代理在 CONNECT 应答里报告的失败（host unreachable、connection refused、not allowed by ruleset 等），
+		// x/net 一律冠以 "unknown error"。其实原因很明确：代理连得上、握手也完成了，是它没能（或不肯）连到远程目标。
+		return "（这是代理自己报告的失败：代理连得上，但它没能连到远程目标，请检查远程目标地址，以及代理是否允许、能否访问到它）"
 	}
 	return ""
 }
