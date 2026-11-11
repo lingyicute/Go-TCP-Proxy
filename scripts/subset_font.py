@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import http.client
 import io
 import logging
 import os
@@ -106,11 +107,19 @@ def fetch_font(local: Path | None, url: str, refresh: bool) -> tuple[Path, bool]
         # 必须带超时：urlopen 默认无限等待，服务器接了连接却迟迟不发数据时，
         # CI 会一直挂到作业的 6 小时上限，还会堵住排在后面的运行。
         with urllib.request.urlopen(url, timeout=60) as resp, tmp.open("wb") as f:
+            expected = resp.headers.get("Content-Length", "")
             shutil.copyfileobj(resp, f)
-    except (urllib.error.URLError, OSError) as e:
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+        # HTTPException：分块传输中途断开时 http.client 抛的是 IncompleteRead，它不是 OSError。
         tmp.unlink(missing_ok=True)
         die(f"下载字体失败：{e}")
-    if tmp.stat().st_size < 4096:
+    got = tmp.stat().st_size
+    # 带 Content-Length 的响应中途断开时，HTTPResponse.read(n) 不报错、只是提前返回空，
+    # 截断的字体会被当成下载成功写进缓存，之后每次运行都在解析字体时失败。
+    if expected.isdigit() and got != int(expected):
+        tmp.unlink(missing_ok=True)
+        die(f"字体下载不完整：收到 {got} 字节，应为 {expected} 字节。")
+    if got < 4096:
         tmp.unlink(missing_ok=True)
         die("下载到的字体文件过小，可能拿到了错误页面。")
     try:  # 放进缓存，下次（或 CI 下一次）就不必重新下载
