@@ -368,17 +368,15 @@ func (s *Server) handle(ss *session) {
 	s.logger.Printf("客户端 %s 已通过代理连接到 %s", peer, s.opts.RemoteAddr)
 
 	ss.touch() // 空闲计时从隧道打通开始
-	var wg sync.WaitGroup
-	wg.Add(2)
+	// 只为一个方向另起 goroutine，另一个方向就在当前 goroutine 里搬：
+	// 两个方向各起一个的话，当前 goroutine 除了等它们结束什么都不做，每条会话白白多占一个栈。
+	done := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(done)
 		s.pipe(ss, remote, client, "客户端 -> 远程")
 	}()
-	go func() {
-		defer wg.Done()
-		s.pipe(ss, client, remote, "远程 -> 客户端")
-	}()
-	wg.Wait()
+	s.pipe(ss, client, remote, "远程 -> 客户端")
+	<-done
 
 	s.logger.Printf("客户端 %s 的连接已关闭", peer)
 }
