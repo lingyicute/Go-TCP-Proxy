@@ -319,6 +319,32 @@ func TestResolveConfig_PasswordFromEnvAndFlagPrecedence(t *testing.T) {
 	}
 }
 
+// 用 -socks-user 换成另一个账号时，配置文件里属于旧账号的密码不能被沿用；同一个用户名则照常沿用。
+func TestResolveConfig_SwitchingUserDropsSavedPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	saved := config.Config{LocalAddr: "127.0.0.1:18080", RemoteAddr: "git.internal:22", SocksAddr: "10.0.0.1:1080", SocksUser: "alice", SocksPassword: "alice-pw"}
+	if err := config.Save(path, saved); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(passwordEnv, "")
+
+	cfg, _, err := resolveConfig(mustParse(t, "-y", "-c", path, "-socks-user", "bob"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SocksUser != "bob" || cfg.SocksPassword != "" {
+		t.Errorf("换了用户名不应沿用旧账号的密码: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
+	}
+
+	cfg, _, err = resolveConfig(mustParse(t, "-y", "-c", path, "-socks-user", "alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != saved {
+		t.Errorf("用户名没变时应沿用配置文件里的密码: %+v", cfg)
+	}
+}
+
 // 环境变量里的密码常年导出在 shell 里：这个实例没有配置用户名时应忽略它，而不是拒绝启动；
 // 交互模式下仍把它当作密码的默认值，供回答"需要认证"之后沿用。
 func TestResolveConfig_EnvPasswordWithoutUserIsIgnored(t *testing.T) {
