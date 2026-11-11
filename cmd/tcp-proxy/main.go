@@ -192,6 +192,10 @@ func run(args []string) error {
 		return fmt.Errorf("无法监听本地地址 %s: %w", cfg.LocalAddr, err)
 	}
 	defer ln.Close()
+	// 必须在落盘之前拦下：否则这个地址会被记成下次的默认值。
+	if socksIsSelf(ln.Addr(), cfg.SocksAddr) {
+		return fmt.Errorf("Socks5 代理地址 %s 就是本程序自己的监听地址，连接只会在自己身上打转；请填写真正的 Socks5 代理地址", cfg.SocksAddr)
+	}
 
 	if !opts.noSave && configPath != "" {
 		saveConfig(configPath, cfg)
@@ -504,6 +508,36 @@ func readTerminalPassword(fd int) string {
 		stdinEOF = true
 	}
 	return string(b)
+}
+
+// socksIsSelf 报告 Socks5 代理地址是否就是本进程刚刚监听的那个地址。
+//
+// 两处填成同一个地址（最常见的是把代理端口顺手敲成了监听端口）时监听照样成功，但每收到一条连接
+// 就会向自己再拨一条，新连接又被自己接受、继续向自己拨号……一条客户端连接就能在瞬间耗尽进程的
+// 文件描述符。只认"同一个 IP、同一个端口"这种确定无疑的情况：域名、以及监听在通配地址上时的
+// 本机地址，都可能通向同一端口上的另一个进程，不在这里猜。
+func socksIsSelf(listen net.Addr, socksAddr string) bool {
+	ln, ok := listen.(*net.TCPAddr)
+	host, port, err := net.SplitHostPort(socksAddr)
+	if !ok || err != nil {
+		return false
+	}
+	if n, err := net.LookupPort("tcp", port); err != nil || n != ln.Port {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsUnspecified() {
+		// 拨号时通配地址表示本机（net.Dial 的约定），实际连的是同一地址族的回环地址。
+		if ip.To4() != nil {
+			ip = net.IPv4(127, 0, 0, 1)
+		} else {
+			ip = net.IPv6loopback
+		}
+	}
+	return ip.Equal(ln.IP)
 }
 
 // warnIfPublic 在监听地址不是回环地址时给出提示，避免用户无意中把入口暴露到局域网。
