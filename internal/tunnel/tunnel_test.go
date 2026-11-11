@@ -920,6 +920,24 @@ func TestSessionActiveAtIsMonotonic(t *testing.T) {
 	}
 }
 
+// 两个方向的 goroutine 并发 touch 时，先读时钟的那个可能后写入；这样的迟到读数不能把
+// lastActive 拉回去，否则会话会被提前判定为空闲。这里直接构造"已有更新的读数"的状态来复现。
+func TestSessionTouchNeverMovesBackwards(t *testing.T) {
+	ss := &session{start: time.Now()}
+	ahead := int64(time.Hour)
+	ss.lastActive.Store(ahead)
+	ss.touch()
+	if got := ss.lastActive.Load(); got != ahead {
+		t.Fatalf("touch 把 lastActive 从 %v 改成了 %v：迟到的读数不应让它倒退", time.Duration(ahead), time.Duration(got))
+	}
+
+	ss = &session{start: time.Now().Add(-time.Minute)}
+	ss.touch()
+	if got := time.Duration(ss.lastActive.Load()); got < time.Minute {
+		t.Fatalf("touch 应把 lastActive 推进到当前时刻, 实际只有 %v", got)
+	}
+}
+
 // ---------- SOCKS5 用户名/密码认证（RFC 1929） ----------
 
 // logBuffer 是可以并发写入的日志缓冲区：handle 在各自的 goroutine 里打日志。
