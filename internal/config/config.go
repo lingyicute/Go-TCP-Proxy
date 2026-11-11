@@ -87,6 +87,13 @@ func Save(path string, cfg Config) error {
 	}
 	data = append(data, '\n')
 
+	// 配置文件是符号链接时（dotfiles 仓库里常见的做法）写到它指向的文件：rename 换掉的是目录项，
+	// 直接对着 path 做会把链接本身换成一个普通文件，仓库里的那一份从此不再更新。
+	// 文件还不存在时 EvalSymlinks 会失败，按原路径新建即可。
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		path = target
+	}
+
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("创建配置目录 %s: %w", dir, err)
