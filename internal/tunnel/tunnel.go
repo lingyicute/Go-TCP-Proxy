@@ -247,7 +247,11 @@ func (s *Server) Serve(ln net.Listener) error {
 				delay = min(delay*2, acceptRetryMax)
 			}
 			s.logger.Printf("Accept 出错，%v 后重试: %v", delay, err)
-			time.Sleep(delay)
+			select {
+			case <-time.After(delay):
+			case <-s.dialCtx.Done():
+				return nil
+			}
 			continue
 		}
 		delay = 0

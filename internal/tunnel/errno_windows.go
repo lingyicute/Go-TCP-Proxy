@@ -25,7 +25,7 @@ func isConnClosedError(err error) bool {
 	}
 	switch errno {
 	case syscall.WSAECONNRESET, syscall.WSAECONNABORTED, wsaeNotConn, wsaeShutdown, syscall.ERROR_NETNAME_DELETED,
-		syscall.ECONNRESET, syscall.ECONNABORTED, syscall.EPIPE, syscall.ENOTCONN:
+		syscall.ECONNRESET, syscall.ECONNABORTED, syscall.EPIPE, syscall.ENOTCONN, syscall.ESHUTDOWN:
 		return true
 	}
 	return false
