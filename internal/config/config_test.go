@@ -165,6 +165,8 @@ func TestValidate(t *testing.T) {
 		{LocalAddr: "0.0.0.0:10808", RemoteAddr: "[::1]:22", SocksAddr: "proxy.local:1080"},
 		{LocalAddr: "127.0.0.1:http", RemoteAddr: "example.com:ssh", SocksAddr: "127.0.0.1:socks"},
 		{LocalAddr: "127.0.0.1:0", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080"}, // 监听端口 0 = 随机端口，合法
+		// IPv6 zone 是网卡名，可以带空格
+		{LocalAddr: "[fe80::1%Ethernet 2]:1", RemoteAddr: "example.com:22", SocksAddr: "[fe80::2%以太网 2]:1080"},
 		{LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080", SocksUser: "alice", SocksPassword: "secret"},
 		{LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080", SocksUser: "alice"}, // 空密码合法
 		{LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:22", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("u", 255), SocksPassword: strings.Repeat("p", 255)},
@@ -187,6 +189,9 @@ func TestValidate(t *testing.T) {
 		"socks port 0":          {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"},
 		"garbage":               {LocalAddr: "127.0.0.1:1", RemoteAddr: "http://example.com", SocksAddr: "127.0.0.1:1080"},
 		"password without user": {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksPassword: "secret"},
+		"local host with space": {LocalAddr: "127.0.0.1 :1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
+		"remote host has space": {LocalAddr: "127.0.0.1:1", RemoteAddr: " example.com:80", SocksAddr: "127.0.0.1:1080"},
+		"socks host with tab":   {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "proxy\t.local:1080"},
 		"remote host too long":  {LocalAddr: "127.0.0.1:1", RemoteAddr: strings.Repeat("a", 256) + ":80", SocksAddr: "127.0.0.1:1080"},
 		"socks host too long":   {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: strings.Repeat("a", 256) + ":1080"},
 		"user too long":         {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("u", 256)},

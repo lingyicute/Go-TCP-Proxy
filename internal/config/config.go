@@ -10,6 +10,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 )
 
 // AppName 是配置目录名。历史上沿用了旧的 module 名，改名会让老用户的配置"失踪"，因此保持不变。
@@ -216,6 +218,12 @@ func validateAddr(addr string, listen bool) error {
 	}
 	if host == "" && !listen {
 		return fmt.Errorf("%q 缺少主机名", addr)
+	}
+	// 手动编辑配置、参数加了引号时容易混进空格（" example.com:80"）。主机名里不可能有空白，
+	// 放过去的话服务照常启动，之后每一条连接却都因为代理解析不了这个名字而失败。
+	// "%" 之后是 IPv6 的 zone，不在此列：Windows 的网卡名（"以太网 2"）本身就带空格。
+	if name, _, _ := strings.Cut(host, "%"); strings.ContainsFunc(name, unicode.IsSpace) {
+		return fmt.Errorf("%q 主机名里有空白字符", addr)
 	}
 	if len(host) > 255 {
 		return fmt.Errorf("%q 主机名长度 %d 字节，超过 255 字节上限", addr, len(host))
