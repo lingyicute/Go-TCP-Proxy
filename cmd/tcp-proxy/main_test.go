@@ -23,6 +23,14 @@ func useStdin(t *testing.T, content string) {
 	t.Cleanup(func() { stdin, stdinEOF, stdinIsTerminal = old, oldEOF, oldTTY })
 }
 
+// 测试不能受调用者环境的影响：平时就靠 TCP_PROXY_SOCKS_PASSWORD 使用本工具的人，shell 里多半
+// 一直导出着它，而 resolveConfig 会把它当作密码读进来——没有配置用户名的用例于是全部以
+// "设置了密码却没有用户名"失败。需要这个变量的用例自己用 t.Setenv 设置。
+func TestMain(m *testing.M) {
+	os.Unsetenv(passwordEnv)
+	os.Exit(m.Run())
+}
+
 func mustParse(t *testing.T, args ...string) *options {
 	t.Helper()
 	o, err := parseFlags(args)
