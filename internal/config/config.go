@@ -103,7 +103,9 @@ func Save(path string, cfg Config) error {
 		return fmt.Errorf("创建配置目录 %s: %w", dir, err)
 	}
 
-	tmp, err := os.CreateTemp(dir, FileName+".*.tmp")
+	// 临时文件按实际要写的文件命名：用 -c 指定的 ssh.json 不该在旁边留下 config.json.*.tmp，
+	// 万一中途被杀掉，残留文件的名字也能看出它属于哪份配置。
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("创建临时文件: %w", err)
 	}
