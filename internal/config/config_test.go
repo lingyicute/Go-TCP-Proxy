@@ -1,12 +1,14 @@
 package config
 
 import (
+	"encoding/binary"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func TestLoad_NotFound(t *testing.T) {
@@ -38,6 +40,31 @@ func TestLoad_AcceptsUTF8BOM(t *testing.T) {
 	cfg, err := Load(path)
 	if err != nil || cfg.RemoteAddr != "db.internal:5432" {
 		t.Fatalf("带 BOM 的配置应正常加载: cfg=%+v err=%v", cfg, err)
+	}
+}
+
+// PowerShell 5 的 > / Out-File 默认写出带 BOM 的 UTF-16LE；BE 也一并支持。
+func TestLoad_AcceptsUTF16BOM(t *testing.T) {
+	text := `{"remote_addr":"db.internal:5432","socks_user":"alice","socks_password":"密码"}`
+	units := utf16.Encode([]rune(text))
+	for _, tc := range []struct {
+		name  string
+		bom   []byte
+		order binary.AppendByteOrder
+	}{
+		{"LE", []byte{0xff, 0xfe}, binary.LittleEndian},
+		{"BE", []byte{0xfe, 0xff}, binary.BigEndian},
+	} {
+		data := tc.bom
+		for _, u := range units {
+			data = tc.order.AppendUint16(data, u)
+		}
+		path := filepath.Join(t.TempDir(), "config.json")
+		os.WriteFile(path, data, 0o600)
+		cfg, err := Load(path)
+		if err != nil || cfg.RemoteAddr != "db.internal:5432" || cfg.SocksPassword != "密码" {
+			t.Errorf("UTF-16%s 的配置应正常加载: cfg=%+v err=%v", tc.name, cfg, err)
+		}
 	}
 }
 
