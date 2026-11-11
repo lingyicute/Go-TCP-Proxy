@@ -197,3 +197,36 @@ func TestValidate(t *testing.T) {
 		}
 	}
 }
+
+// 回归测试：Save 用 rename 做原子替换，旧实现直接对着传入的路径做，配置文件是符号链接时
+// 链接本身会被换成普通文件，它原本指向的那一份（例如 dotfiles 仓库里的）不再更新。
+func TestSave_WritesThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "dotfiles", "config.json")
+	if err := Save(target, Defaults); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "config.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("当前环境无法创建符号链接: %v", err)
+	}
+
+	want := Defaults
+	want.RemoteAddr = "git.internal:22"
+	if err := Save(link, want); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("保存后配置文件应仍是符号链接, 实际 mode=%v", info.Mode())
+	}
+	if got, err := Load(target); err != nil || got != want {
+		t.Errorf("新配置应写进链接指向的文件: %+v err=%v", got, err)
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(target)); len(entries) != 1 {
+		t.Errorf("链接指向的目录里不应留下临时文件, 实际 %d 个条目", len(entries))
+	}
+}
