@@ -3,6 +3,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 )
 
 // AppName 是配置目录名。历史上沿用了旧的 module 名，改名会让老用户的配置"失踪"，因此保持不变。
@@ -69,6 +71,9 @@ func Load(path string) (Config, error) {
 	// Windows 记事本、PowerShell 5 的 Set-Content -Encoding UTF8 保存时会在文件开头写入 UTF-8 BOM，
 	// 而 encoding/json 不认它：手动编辑过的配置不应因此变成"解析失败"。
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	// PowerShell 5 的 > 重定向和 Out-File 默认写的是带 BOM 的 UTF-16LE，encoding/json 只会报一句
+	// 让人摸不着头脑的 "invalid character 'ÿ'"。BOM 明确标出了编码，转成 UTF-8 再解析即可。
+	data = decodeUTF16(data)
 
 	cfg := Defaults
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -76,6 +81,25 @@ func Load(path string) (Config, error) {
 	}
 	cfg.FillDefaults()
 	return cfg, nil
+}
+
+// decodeUTF16 把以 UTF-16 BOM（LE 或 BE）开头的数据转成 UTF-8；没有 BOM 时原样返回。
+func decodeUTF16(data []byte) []byte {
+	var order binary.ByteOrder
+	switch {
+	case bytes.HasPrefix(data, []byte{0xff, 0xfe}):
+		order = binary.LittleEndian
+	case bytes.HasPrefix(data, []byte{0xfe, 0xff}):
+		order = binary.BigEndian
+	default:
+		return data
+	}
+	data = data[2:]
+	units := make([]uint16, len(data)/2)
+	for i := range units {
+		units[i] = order.Uint16(data[2*i:])
+	}
+	return []byte(string(utf16.Decode(units)))
 }
 
 // Save 把配置写入 path，必要时创建父目录（0700）。
