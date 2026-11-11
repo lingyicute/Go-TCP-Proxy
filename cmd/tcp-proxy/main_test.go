@@ -208,6 +208,17 @@ func TestResolveConfig_InteractiveAuthFlow(t *testing.T) {
 	if cfg.RemoteAddr != "ssh.internal:22" {
 		t.Errorf("remote = %q", cfg.RemoteAddr)
 	}
+
+	// 已通过环境变量传入密码时，即使尚无已保存的用户名，认证提问也应默认"是"，直接回车即可沿用该密码
+	t.Setenv(passwordEnv, "env-secret")
+	useStdin(t, "\nssh.internal:22\n\n\nalice\n\n")
+	cfg, _, err = resolveConfig(mustParse(t, "-c", filepath.Join(t.TempDir(), "missing.json")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SocksUser != "alice" || cfg.SocksPassword != "env-secret" {
+		t.Errorf("预设密码时认证提问应默认开启并沿用该密码: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
+	}
 }
 
 // 用户名为空会被反复追问；标准输入结束后交给 Validate 报错，而不是死循环或带着空用户名启动。
@@ -443,39 +454,36 @@ func TestVersionString(t *testing.T) {
 
 // 回归测试：旧实现每次提问都新建 bufio.Reader，管道输入的第二行会被吞掉并报 EOF。
 func TestPrompt_ReadsConsecutiveLinesFromOneReader(t *testing.T) {
-	stdinEOF = false
-	r := bufio.NewReader(strings.NewReader("first\n  second  \n\nlast-without-newline"))
-	if got := prompt(r, "a", "d1"); got != "first" {
+	useStdin(t, "first\n  second  \n\nlast-without-newline")
+	if got := prompt(stdin, "a", "d1"); got != "first" {
 		t.Errorf("第 1 行: %q", got)
 	}
-	if got := prompt(r, "b", "d2"); got != "second" {
+	if got := prompt(stdin, "b", "d2"); got != "second" {
 		t.Errorf("第 2 行应去掉首尾空白: %q", got)
 	}
-	if got := prompt(r, "c", "d3"); got != "d3" {
+	if got := prompt(stdin, "c", "d3"); got != "d3" {
 		t.Errorf("空行应返回默认值: %q", got)
 	}
-	if got := prompt(r, "d", "d4"); got != "last-without-newline" {
+	if got := prompt(stdin, "d", "d4"); got != "last-without-newline" {
 		t.Errorf("无换行的最后一行也应被读取: %q", got)
 	}
-	if got := prompt(r, "e", "d5"); got != "d5" || !stdinEOF {
+	if got := prompt(stdin, "e", "d5"); got != "d5" || !stdinEOF {
 		t.Errorf("EOF 后应返回默认值并标记 stdinEOF: %q %v", got, stdinEOF)
 	}
 }
 
 func TestPromptValid_RetriesUntilValid(t *testing.T) {
-	stdinEOF = false
-	r := bufio.NewReader(strings.NewReader("nonsense\n:99999\nexample.com:22\n"))
-	got := promptValid(r, "x", "default:1", config.ValidateDialAddr)
+	useStdin(t, "nonsense\n:99999\nexample.com:22\n")
+	got := promptValid(stdin, "x", "default:1", config.ValidateDialAddr)
 	if got != "example.com:22" {
 		t.Errorf("应跳过两个非法输入, 实际 %q", got)
 	}
 }
 
 func TestPromptValid_StopsRetryingOnEOF(t *testing.T) {
-	stdinEOF = false
-	r := bufio.NewReader(strings.NewReader(""))
+	useStdin(t, "")
 	done := make(chan string, 1)
-	go func() { done <- promptValid(r, "x", "invalid-default", config.ValidateDialAddr) }()
+	go func() { done <- promptValid(stdin, "x", "invalid-default", config.ValidateDialAddr) }()
 	select {
 	case got := <-done:
 		if got != "invalid-default" {
