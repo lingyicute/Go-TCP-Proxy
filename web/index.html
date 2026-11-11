@@ -43,9 +43,10 @@ html.dark{ color-scheme: dark; }
    视口外的区块反正看不见，直接跳到新颜色即可 */
 html.theming > body{ transition:background-color .38s ease !important; }
 body .theming, body .theming *{ transition: background-color .38s ease, color .38s ease, border-color .38s ease, fill .38s ease, stroke .38s ease, box-shadow .38s ease !important; }
-/* 上面的 !important 会把组件自己的 transition 整个盖掉，而明暗切换恰好总是发生在 theming 期间：
-   不单独放行的话，日月图标的旋转与淡出永远没有机会播放 */
+/* 上面的 !important 会把组件自己的 transition 整个盖掉，而明暗与种子色切换恰好总是发生在 theming 期间：
+   不单独放行的话，日月图标的旋转淡出、色块选中对勾的淡入永远没有机会播放 */
 html.theming #themeBtn .sun-moon svg{ transition:transform .45s cubic-bezier(.2,0,0,1), opacity .3s !important; }
+html.theming .swatch .ic{ transition:opacity .2s !important; }
 
 /* ============ 基础 ============ */
 *{ margin:0; padding:0; box-sizing:border-box; }
@@ -593,7 +594,7 @@ window.GTP = (function(){
     }
   }catch(e){}
   var themingTimer, themed = [];
-  function unmark(){ themed.forEach(function(el){ el.classList.remove('theming'); }); }
+  function unmark(){ themed.forEach(function(el){ el.classList.remove('theming'); }); themed = []; }
   function apply(animate){
     var sd = SEEDS[state.seed], pal = palette(sd.h, sd.s, state.dark), r = document.documentElement, k;
     if(animate){
@@ -1140,7 +1141,8 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
       el.classList.toggle('on', on); el.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     if(seedNameEl) seedNameEl.textContent = G.SEEDS[state.seed].n;
-    themeBtn.setAttribute('aria-label', state.dark ? '切换到浅色主题' : '切换到深色主题');
+    var label = state.dark ? '切换到浅色主题' : '切换到深色主题';
+    themeBtn.setAttribute('aria-label', label); themeBtn.title = label;
   };
   window.GTP_UI(G.state);
 
@@ -1216,12 +1218,17 @@ tcp-proxy.exe        <span class="c-d"># Windows</span></code></pre>
       if(!en.isIntersecting) return;
       var el = en.target;
       io.unobserve(el);
-      el.addEventListener('transitionend', function onEnd(e){
-        if(e.target !== el || e.propertyName !== 'opacity') return;
+      var t;
+      function done(){
+        clearTimeout(t);
         el.removeEventListener('transitionend', onEnd);
         settle(el);
-      });
-      setTimeout(function(){ settle(el); }, 1000); // 兜底：减少动态效果等情况下不会有 transitionend
+      }
+      function onEnd(e){
+        if(e.target === el && e.propertyName === 'opacity') done();
+      }
+      el.addEventListener('transitionend', onEnd);
+      t = setTimeout(done, 1000); // 兜底：减少动态效果等情况下不会有 transitionend
       el.classList.add('in');
     });
   }, { threshold:.12, rootMargin:'0px 0px -6% 0px' });
