@@ -184,11 +184,7 @@ func run(args []string) error {
 	defer ln.Close()
 
 	if !opts.noSave && configPath != "" {
-		if err := config.Save(configPath, cfg); err != nil {
-			log.Printf("警告：%v", err)
-		} else {
-			log.Printf("配置已保存到 %s", configPath)
-		}
+		saveConfig(configPath, cfg)
 	}
 
 	socksDesc := cfg.SocksAddr
@@ -334,6 +330,25 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 		return cfg, "", err
 	}
 	return cfg, configPath, nil
+}
+
+// saveConfig 把本次生效的配置写回 path；文件里已经是同样的内容时不去动它。
+// 最常见的启动方式（-y、交互模式一路回车）什么都没改，而 config.Save 总是重写整个文件：
+// 手动编辑时留下的排版会被抹掉，只读的配置（只读挂载、指向 /nix/store 的链接）则每次启动
+// 都要报一条保存失败的警告。
+func saveConfig(path string, cfg config.Config) {
+	if saved, err := config.Load(path); err == nil && saved == cfg {
+		// 不重写也要守住 Save 一直保证的"只有本人可读"：手写的配置文件多半是 0644，里面可能有代理密码。
+		if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o077 != 0 {
+			os.Chmod(path, info.Mode().Perm()&^0o077)
+		}
+		return
+	}
+	if err := config.Save(path, cfg); err != nil {
+		log.Printf("警告：%v", err)
+	} else {
+		log.Printf("配置已保存到 %s", path)
+	}
 }
 
 func printBanner() {
