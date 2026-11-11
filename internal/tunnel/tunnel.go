@@ -96,7 +96,18 @@ type session struct {
 }
 
 // touch 记录会话刚刚活跃过。
-func (ss *session) touch() { ss.lastActive.Store(int64(time.Since(ss.start))) }
+//
+// 两个方向的搬运 goroutine 会并发调用它：各自先读时钟、再写入，如果读完时钟后被调度走，
+// 直接 Store 就会让较早的读数盖掉别人刚写入的较新读数，lastActive 倒退，会话的空闲判定
+// 随之提前。所以只允许它向前走。
+func (ss *session) touch() {
+	now := int64(time.Since(ss.start))
+	for old := ss.lastActive.Load(); now > old; old = ss.lastActive.Load() {
+		if ss.lastActive.CompareAndSwap(old, now) {
+			return
+		}
+	}
+}
 
 // activeAt 返回最近一次活跃的时刻（带单调时钟读数）。
 func (ss *session) activeAt() time.Time { return ss.start.Add(time.Duration(ss.lastActive.Load())) }
