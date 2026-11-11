@@ -285,7 +285,9 @@ def main(argv: list[str]) -> int:
 
     if not page.is_file():
         die(f"{page} not found.")
-    html = page.read_text(encoding="utf-8")
+    # 按字节读写，不经过文本模式的换行转换：read_text 会把 CRLF 折成 LF，write_text 在 Windows 上
+    # 又把每个 LF 写成 CRLF——只改了一行字体数据，整个文件的换行符却全变了，diff 里满屏都是改动。
+    html = page.read_bytes().decode("utf-8")
 
     chars = collect_chars(html, args.extra)
     non_ascii = sum(1 for c in chars if ord(c) > 127)
@@ -333,7 +335,7 @@ def main(argv: list[str]) -> int:
             f"{page.name} 里的字体子集已过期，请运行 python3 scripts/subset_font.py 后重新提交。"
         )
 
-    page.write_text(new_html, encoding="utf-8")
+    page.write_bytes(new_html.encode("utf-8"))
     log(
         f"已更新 {page.name}：内联子集 {len(b64) / 1024:.1f} KB，"
         f"页面体积 {size_kb(html):.1f} KB → {size_kb(new_html):.1f} KB"
