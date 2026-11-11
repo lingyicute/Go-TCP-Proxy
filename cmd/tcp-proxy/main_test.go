@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -494,5 +495,38 @@ func TestSaveConfig_LeavesUnchangedFileAlone(t *testing.T) {
 	saveConfig(missing, cfg)
 	if got, err := config.Load(missing); err != nil || got != cfg {
 		t.Errorf("配置文件不存在时应照常新建: %+v err=%v", got, err)
+	}
+}
+
+// 回归测试：Socks5 代理地址与监听地址相同时监听照样成功，但每条连接都会再向自己拨一条，
+// 一条客户端连接就能耗尽文件描述符。只有确定是同一个 IP 和端口时才拦下。
+func TestSocksIsSelf(t *testing.T) {
+	v4 := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1080}
+	v6 := &net.TCPAddr{IP: net.IPv6loopback, Port: 1080}
+	wild := &net.TCPAddr{IP: net.IPv6unspecified, Port: 1080}
+	cases := []struct {
+		listen net.Addr
+		socks  string
+		want   bool
+	}{
+		{v4, "127.0.0.1:1080", true},
+		{v4, "127.0.0.1:socks", true}, // 服务名端口，socks = 1080
+		{v4, "0.0.0.0:1080", true},    // 拨号时通配地址就是本机回环
+		{v4, "[::ffff:127.0.0.1]:1080", true},
+		{v6, "[::1]:1080", true},
+		{v6, "[::]:1080", true},
+		{v4, "127.0.0.1:1081", false},
+		{v4, "127.0.0.2:1080", false},
+		{v4, "[::1]:1080", false}, // 另一个地址族上可以是别的进程
+		{v6, "127.0.0.1:1080", false},
+		{v4, "localhost:1080", false},   // 域名可能解析到别处，不猜
+		{wild, "127.0.0.1:1080", false}, // 通配监听与具体地址上的另一个进程可以共存（BSD / macOS）
+		{v4, "not an address", false},
+		{&net.UnixAddr{Name: "/tmp/x", Net: "unix"}, "127.0.0.1:1080", false},
+	}
+	for _, tc := range cases {
+		if got := socksIsSelf(tc.listen, tc.socks); got != tc.want {
+			t.Errorf("socksIsSelf(%v, %q) = %v, 期望 %v", tc.listen, tc.socks, got, tc.want)
+		}
 	}
 }
