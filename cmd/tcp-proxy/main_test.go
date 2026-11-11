@@ -182,6 +182,11 @@ func TestParseFlags(t *testing.T) {
 	if o, err := parseFlags([]string{"-socks-user", "alice", "-socks-password", "p w"}); err != nil || o.socksUser != "alice" || o.socksPassword != "p w" {
 		t.Errorf("凭据参数解析错误: %+v err=%v", o, err)
 	}
+	for _, args := range [][]string{{"positional"}, {"-unknown"}} {
+		if _, err := parseFlags(args); !errors.Is(err, errUsage) {
+			t.Errorf("%v 应返回 errUsage（用法已打印，main 以退出码 2 退出）, 实际 %v", args, err)
+		}
+	}
 	if _, err := parseFlags([]string{"-h"}); !errors.Is(err, flag.ErrHelp) {
 		t.Errorf("-h 应返回 flag.ErrHelp, 实际 %v", err)
 	}
