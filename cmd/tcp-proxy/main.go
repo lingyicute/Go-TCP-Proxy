@@ -307,7 +307,14 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 		cfg.SocksPassword = opts.socksPassword
 	} else if !(opts.socksUserSet && opts.socksUser == "") {
 		if pw := os.Getenv(passwordEnv); pw != "" {
-			cfg.SocksPassword = pw
+			if interactive || cfg.SocksUser != "" {
+				cfg.SocksPassword = pw
+			} else {
+				// 环境变量多半是在 shell 里常年导出着的，并不是针对这一次运行的指示：这个实例没有配置用户名时
+				// 它无处可用，与 PGPASSWORD 一样忽略即可。照单全收的话，同一个 shell 里启动任何不需要认证的
+				// 实例都会以"设置了密码却没有用户名"失败。（交互模式不在此列：接下来还会问要不要认证。）
+				log.Printf("提示：没有配置 Socks5 代理用户名，已忽略环境变量 %s 中的密码。", passwordEnv)
+			}
 		}
 	}
 

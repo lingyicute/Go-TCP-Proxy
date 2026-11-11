@@ -25,8 +25,8 @@ func useStdin(t *testing.T, content string) {
 }
 
 // 测试不能受调用者环境的影响：平时就靠 TCP_PROXY_SOCKS_PASSWORD 使用本工具的人，shell 里多半
-// 一直导出着它，而 resolveConfig 会把它当作密码读进来——没有配置用户名的用例于是全部以
-// "设置了密码却没有用户名"失败。需要这个变量的用例自己用 t.Setenv 设置。
+// 一直导出着它，而 resolveConfig 会把它当作密码读进来——断言密码的用例于是全都对不上。
+// 需要这个变量的用例自己用 t.Setenv 设置。
 func TestMain(m *testing.M) {
 	os.Unsetenv(passwordEnv)
 	os.Exit(m.Run())
@@ -300,6 +300,34 @@ func TestResolveConfig_PasswordFromEnvAndFlagPrecedence(t *testing.T) {
 	}
 	if cfg != saved {
 		t.Errorf("没有参数和环境变量时应沿用配置文件: %+v", cfg)
+	}
+}
+
+// 环境变量里的密码常年导出在 shell 里：这个实例没有配置用户名时应忽略它，而不是拒绝启动；
+// 交互模式下仍把它当作密码的默认值，供回答"需要认证"之后沿用。
+func TestResolveConfig_EnvPasswordWithoutUserIsIgnored(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	saved := config.Config{LocalAddr: "127.0.0.1:18080", RemoteAddr: "git.internal:22", SocksAddr: "10.0.0.1:1080"}
+	if err := config.Save(path, saved); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(passwordEnv, "fromenv")
+
+	cfg, _, err := resolveConfig(mustParse(t, "-y", "-c", path))
+	if err != nil {
+		t.Fatalf("没有用户名时环境变量里的密码不应导致启动失败: %v", err)
+	}
+	if cfg != saved {
+		t.Errorf("没有用户名时应忽略环境变量里的密码: %+v", cfg)
+	}
+
+	useStdin(t, "\n\n\ny\nalice\n\n")
+	cfg, _, err = resolveConfig(mustParse(t, "-c", path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SocksUser != "alice" || cfg.SocksPassword != "fromenv" {
+		t.Errorf("交互模式下应沿用环境变量里的密码: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
 	}
 }
 
