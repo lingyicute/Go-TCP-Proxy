@@ -465,6 +465,33 @@ func TestDialFailure_ProxyReplyErrorIsReportedWithHint(t *testing.T) {
 	}
 }
 
+// 把 HTTP 代理端口误填成 Socks5 代理时，x/net 只会报 "unexpected protocol version 72"；日志应点明对方不是 Socks5 代理。
+func TestDialFailure_NonSocksProxyIsReportedWithHint(t *testing.T) {
+	httpProxy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { httpProxy.Close() })
+	go func() {
+		for {
+			c, err := httpProxy.Accept()
+			if err != nil {
+				return
+			}
+			c.Read(make([]byte, 64))
+			io.WriteString(c, "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+			c.Close()
+		}
+	}()
+	logs := &logBuffer{}
+	srv, ln := startTunnel(t, Options{RemoteAddr: echoServer(t), SocksAddr: httpProxy.Addr().String(), Logger: log.New(logs, "", 0)})
+
+	got := expectClosedByTunnel(t, srv, ln, logs)
+	if !strings.Contains(got, "unexpected protocol version 72") || !strings.Contains(got, "对方不是 Socks5 代理") {
+		t.Errorf("日志应提示对方不是 Socks5 代理，实际:\n%s", got)
+	}
+}
+
 // 回归测试：旧实现的拨号没有超时，SOCKS 服务器只接受 TCP 不回应时 goroutine 永久挂起。
 func TestDialTimeout(t *testing.T) {
 	socks := newSocksServerWith(t, true) // 只接受 TCP，不回应握手

@@ -397,6 +397,10 @@ func (s *Server) dialErrorHint(err error) string {
 		return "（代理既不接受无认证也不接受用户名/密码认证）"
 	case strings.Contains(msg, "username/password authentication failed"):
 		return "（代理拒绝了配置的用户名/密码，请检查凭据）"
+	case strings.Contains(msg, "unexpected protocol version"):
+		// 对方应答的第一个字节不是 5：最常见的是把 HTTP 代理端口当成了 Socks5 端口（HTTP 的错误页以 "H"
+		// 开头，x/net 报 "unexpected protocol version 72"），或者对方只支持 Socks4（报 4）。
+		return "（对方不是 Socks5 代理：请确认填写的是代理的 Socks5 端口，而不是 HTTP 代理等其它端口）"
 	case strings.Contains(msg, "unknown error "):
 		// 代理在 CONNECT 应答里报告的失败（host unreachable、connection refused、not allowed by ruleset 等），
 		// x/net 一律冠以 "unknown error"。其实原因很明确：代理连得上、握手也完成了，是它没能（或不肯）连到远程目标。
