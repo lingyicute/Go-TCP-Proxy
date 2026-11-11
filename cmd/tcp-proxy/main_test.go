@@ -408,3 +408,48 @@ func TestPromptValid_StopsRetryingOnEOF(t *testing.T) {
 		t.Fatal("stdin 结束且默认值非法时 promptValid 死循环")
 	}
 }
+
+// 回归测试：旧实现每次启动都无条件重写配置文件，哪怕什么都没改——手动编辑时的排版被抹掉，
+// 只读的配置文件每次启动都报一条保存失败的警告。
+func TestSaveConfig_LeavesUnchangedFileAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	// 手写的紧凑排版，还省略了取默认值的 socks_addr：config.Save 写出来的内容一定和它不同。
+	const handWritten = `{"local_addr":"127.0.0.1:18080","remote_addr":"git.internal:22"}`
+	if err := os.WriteFile(path, []byte(handWritten), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil { // WriteFile 的权限受 umask 影响，显式设一遍
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	saveConfig(path, cfg)
+	if got, _ := os.ReadFile(path); string(got) != handWritten {
+		t.Errorf("配置没有变化时不应重写文件, 实际内容:\n%s", got)
+	}
+	// 手写的文件多半是 0644，里面可能有密码：不重写也要守住 config.Save 一直保证的 0600。
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("配置没有变化时也应把权限收紧到 0600, 实际 %o", perm)
+		}
+	}
+
+	cfg.RemoteAddr = "db.internal:5432"
+	saveConfig(path, cfg)
+	if got, err := config.Load(path); err != nil || got != cfg {
+		t.Errorf("配置变化后应写回文件: %+v err=%v", got, err)
+	}
+
+	missing := filepath.Join(t.TempDir(), "sub", "config.json")
+	saveConfig(missing, cfg)
+	if got, err := config.Load(missing); err != nil || got != cfg {
+		t.Errorf("配置文件不存在时应照常新建: %+v err=%v", got, err)
+	}
+}
