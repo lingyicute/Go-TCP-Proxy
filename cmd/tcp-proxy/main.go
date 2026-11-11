@@ -234,7 +234,11 @@ func run(args []string) error {
 		}
 		return fmt.Errorf("监听循环意外退出: %w", err)
 	case sig := <-sigCh:
-		fmt.Println()
+		// 终端会把 Ctrl+C 回显成不换行的 "^C"，先换行，日志才不会接在它后面。只在日志（stderr）
+		// 确实写到终端时才这么做：systemd / Docker 下收到 SIGTERM 时，这只会往日志里塞一行空行。
+		if term.IsTerminal(int(os.Stderr.Fd())) {
+			fmt.Fprintln(os.Stderr)
+		}
 		log.Printf("收到 %v，停止接受新连接；最多等待 %v 让现有连接结束（再按一次 Ctrl+C 立即退出）...",
 			sig, opts.shutdownTimeout)
 	}
