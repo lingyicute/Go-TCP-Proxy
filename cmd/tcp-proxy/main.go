@@ -74,6 +74,10 @@ var stdinIsTerminal = term.IsTerminal(int(os.Stdin.Fd()))
 // readPassword 在终端上读取一行不回显的输入。测试里会把它换成桩函数。
 var readPassword = term.ReadPassword
 
+// errUsage 表示命令行参数有误。具体原因和用法说明在 parseFlags 里已经打印到 stderr，
+// main 只需按惯例以退出码 2 退出（与 flag.ExitOnError 一致），不必再用日志重复报一遍。
+var errUsage = errors.New("命令行参数有误")
+
 type options struct {
 	configPath       string
 	listen           string
@@ -129,7 +133,10 @@ func parseFlags(args []string) (*options, error) {
 	}
 
 	if err := fs.Parse(args); err != nil {
-		return nil, err
+		if errors.Is(err, flag.ErrHelp) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %v", errUsage, err) // flag 包已经打印过错误和用法
 	}
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
@@ -140,16 +147,20 @@ func parseFlags(args []string) (*options, error) {
 		}
 	})
 	if fs.NArg() > 0 {
+		fmt.Fprintf(fs.Output(), "多余的参数: %s\n", strings.Join(fs.Args(), " "))
 		fs.Usage()
-		return nil, fmt.Errorf("多余的参数: %s", strings.Join(fs.Args(), " "))
+		return nil, fmt.Errorf("%w: 多余的参数: %s", errUsage, strings.Join(fs.Args(), " "))
 	}
 	return o, nil
 }
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
+		switch {
+		case errors.Is(err, flag.ErrHelp):
 			return
+		case errors.Is(err, errUsage):
+			os.Exit(2)
 		}
 		log.Fatalf("错误：%v", err)
 	}
