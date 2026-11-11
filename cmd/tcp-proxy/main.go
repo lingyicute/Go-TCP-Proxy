@@ -313,10 +313,13 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 		cfg.SocksAddr = opts.socks
 	}
 	if opts.socksUserSet {
-		cfg.SocksUser = opts.socksUser
-		if opts.socksUser == "" {
+		// 清空用户名就是取消认证；换成另一个用户名时，配置文件里的密码属于原来的账号，
+		// 不能顶着新用户名悄悄发给代理（等于把旧账号的密码泄露出去，认证也注定失败）。
+		// 新账号的密码仍可以来自下面的 -socks-password 或环境变量。
+		if opts.socksUser == "" || opts.socksUser != cfg.SocksUser {
 			cfg.SocksPassword = ""
 		}
+		cfg.SocksUser = opts.socksUser
 	}
 	if opts.socksPasswordSet {
 		cfg.SocksPassword = opts.socksPassword
