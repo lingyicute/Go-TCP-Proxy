@@ -298,12 +298,14 @@ func TestNew_ValidatesAddresses(t *testing.T) {
 		{"remote without port", Options{RemoteAddr: "example.com", SocksAddr: "127.0.0.1:1080"}},
 		{"remote empty host", Options{RemoteAddr: ":80", SocksAddr: "127.0.0.1:1080"}},
 		{"remote port 0", Options{RemoteAddr: "example.com:0", SocksAddr: "127.0.0.1:1080"}},
+		{"remote host with space", Options{RemoteAddr: " example.com:80", SocksAddr: "127.0.0.1:1080"}},
 		{"remote host too long", Options{RemoteAddr: strings.Repeat("a", 256) + ":80", SocksAddr: "127.0.0.1:1080"}},
 		{"empty socks", Options{RemoteAddr: "example.com:80", SocksAddr: ""}},
 		{"garbage socks", Options{RemoteAddr: "example.com:80", SocksAddr: "not an address"}},
 		{"socks empty host", Options{RemoteAddr: "example.com:80", SocksAddr: ":1080"}},
 		{"socks port 0", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"}},
 		{"socks bad port", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:99999"}},
+		{"socks host with space", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1 :1080"}},
 		{"socks host too long", Options{RemoteAddr: "example.com:80", SocksAddr: strings.Repeat("a", 256) + ":1080"}},
 	}
 	for _, tc := range cases {

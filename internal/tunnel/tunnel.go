@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"golang.org/x/net/proxy"
 )
@@ -144,7 +145,7 @@ type socksDialer interface {
 	DialWithConn(ctx context.Context, c net.Conn, network, address string) (net.Addr, error)
 }
 
-// resolveDialAddr 校验主动连接地址（host 非空且不超过 255 字节、端口在 1..65535 内），
+// resolveDialAddr 校验主动连接地址（host 非空、不含空白且不超过 255 字节、端口在 1..65535 内），
 // 并把服务名端口换算成数字：SOCKS5 报文里的端口是 2 字节整数，x/net 在握手与组装错误时都直接用
 // strconv.Atoi 解析端口，"example.com:ssh" 或 "127.0.0.1:socks" 原样传下去会在连接阶段出错。
 func resolveDialAddr(addr string) (string, error) {
@@ -154,6 +155,9 @@ func resolveDialAddr(addr string) (string, error) {
 	}
 	if host == "" {
 		return "", errors.New("缺少主机名")
+	}
+	if name, _, _ := strings.Cut(host, "%"); strings.ContainsFunc(name, unicode.IsSpace) { // "%" 之后是 IPv6 zone，网卡名可以带空格
+		return "", errors.New("主机名里有空白字符")
 	}
 	if len(host) > 255 {
 		return "", fmt.Errorf("主机名长度 %d 字节，超过 255 字节上限", len(host))
