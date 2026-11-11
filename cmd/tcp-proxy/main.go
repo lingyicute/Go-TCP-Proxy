@@ -403,7 +403,12 @@ func readLine(r *bufio.Reader) string {
 
 // prompt 打印提示并读取一行输入；空行或标准输入已结束时返回 defaultValue。
 func prompt(r *bufio.Reader, label, defaultValue string) string {
-	fmt.Printf("%s [%s]: ", label, defaultValue)
+	if defaultValue == "" {
+		// 没有可沿用的值（首次填写用户名）：空的 "[]" 只会让人以为直接回车也行。
+		fmt.Printf("%s: ", label)
+	} else {
+		fmt.Printf("%s [%s]: ", label, defaultValue)
+	}
 	if line := strings.TrimSpace(readLine(r)); line != "" {
 		return line
 	}
