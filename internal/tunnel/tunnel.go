@@ -364,7 +364,8 @@ func (s *Server) handle(ss *session) {
 	cancel()
 	if err != nil {
 		if s.dialCtx.Err() == nil { // 因强制停机而中断的拨号不算错误
-			s.logger.Printf("错误：通过代理连接 %s 失败: %v%s", s.opts.RemoteAddr, err, s.dialErrorHint(err))
+			// 带上客户端地址：并发连接时，失败日志才能和上面那条\"已连接\"对上号。
+			s.logger.Printf("错误：客户端 %s 通过代理连接 %s 失败: %v%s", peer, s.opts.RemoteAddr, err, s.dialErrorHint(err))
 		}
 		return
 	}
