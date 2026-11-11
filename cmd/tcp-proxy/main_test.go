@@ -275,6 +275,23 @@ func TestResolveConfig_PasswordFromEnvAndFlagPrecedence(t *testing.T) {
 		t.Errorf("命令行参数应优先于环境变量: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
 	}
 
+	t.Setenv(passwordEnv, "fromenv")
+	cfg, _, err = resolveConfig(mustParse(t, "-y", "-c", path, "-socks-password", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SocksUser != "alice" || cfg.SocksPassword != "" {
+		t.Errorf("显式给出空 -socks-password 应覆盖环境变量与配置文件: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
+	}
+
+	cfg, _, err = resolveConfig(mustParse(t, "-y", "-c", path, "-socks-user", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SocksUser != "" || cfg.SocksPassword != "" {
+		t.Errorf("显式给出空 -socks-user 应清除已保存的凭据: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
+	}
+
 	t.Setenv(passwordEnv, "")
 	cfg, _, err = resolveConfig(mustParse(t, "-y", "-c", path))
 	if err != nil {
@@ -347,8 +364,34 @@ func TestPromptPassword_TerminalEOFKeepsSaved(t *testing.T) {
 	if got := promptPassword(stdin, "p", "saved"); got != "saved" {
 		t.Errorf("期望沿用保存的密码, 实际 %q", got)
 	}
+	if !stdinEOF {
+		t.Error("终端密码输入遇到 EOF 后应置位 stdinEOF")
+	}
 	if got := promptPassword(stdin, "p", ""); got != "" {
 		t.Errorf("没有保存的密码时期望得到空密码, 实际 %q", got)
+	}
+}
+
+func TestPromptPassword_RetriesWhenTooLongAndReadsBuffered(t *testing.T) {
+	useStdin(t, strings.Repeat("p", 256)+"\nvalid-pw\n")
+	if got := promptPassword(stdin, "p", ""); got != "valid-pw" {
+		t.Errorf("超长密码后应重问并读取下一行, 实际 %q", got)
+	}
+
+	// 终端粘贴多行时，前面的提问已把密码行预读进 bufio.Reader：应从缓冲区读取而非调用 readPassword 阻塞
+	useStdin(t, "alice\npasted-pw\n")
+	oldRead := readPassword
+	t.Cleanup(func() { readPassword = oldRead })
+	stdinIsTerminal = true
+	readPassword = func(int) ([]byte, error) {
+		t.Fatal("bufio.Reader 已有预读数据时不应调用 readPassword")
+		return nil, nil
+	}
+	if u := prompt(stdin, "u", ""); u != "alice" {
+		t.Fatalf("u = %q", u)
+	}
+	if got := promptPassword(stdin, "p", ""); got != "pasted-pw" {
+		t.Errorf("应读到已预读进缓冲区的粘贴密码, 实际 %q", got)
 	}
 }
 

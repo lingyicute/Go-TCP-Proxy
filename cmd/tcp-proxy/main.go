@@ -75,18 +75,20 @@ var stdinIsTerminal = term.IsTerminal(int(os.Stdin.Fd()))
 var readPassword = term.ReadPassword
 
 type options struct {
-	configPath      string
-	listen          string
-	remote          string
-	socks           string
-	socksUser       string
-	socksPassword   string
-	yes             bool
-	noSave          bool
-	dialTimeout     time.Duration
-	shutdownTimeout time.Duration
-	idleTimeout     time.Duration
-	showVersion     bool
+	configPath       string
+	listen           string
+	remote           string
+	socks            string
+	socksUser        string
+	socksPassword    string
+	socksUserSet     bool
+	socksPasswordSet bool
+	yes              bool
+	noSave           bool
+	dialTimeout      time.Duration
+	shutdownTimeout  time.Duration
+	idleTimeout      time.Duration
+	showVersion      bool
 }
 
 func parseFlags(args []string) (*options, error) {
@@ -129,6 +131,14 @@ func parseFlags(args []string) (*options, error) {
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "socks-user":
+			o.socksUserSet = true
+		case "socks-password":
+			o.socksPasswordSet = true
+		}
+	})
 	if fs.NArg() > 0 {
 		fs.Usage()
 		return nil, fmt.Errorf("多余的参数: %s", strings.Join(fs.Args(), " "))
@@ -283,14 +293,18 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 	if opts.socks != "" {
 		cfg.SocksAddr = opts.socks
 	}
-	if opts.socksUser != "" {
+	if opts.socksUserSet {
 		cfg.SocksUser = opts.socksUser
+		if opts.socksUser == "" {
+			cfg.SocksPassword = ""
+		}
 	}
-	if opts.socksPassword == "" {
-		opts.socksPassword = os.Getenv(passwordEnv)
-	}
-	if opts.socksPassword != "" {
+	if opts.socksPasswordSet {
 		cfg.SocksPassword = opts.socksPassword
+	} else if !(opts.socksUserSet && opts.socksUser == "") {
+		if pw := os.Getenv(passwordEnv); pw != "" {
+			cfg.SocksPassword = pw
+		}
 	}
 
 	// 4. 交互式确认
@@ -365,6 +379,10 @@ var stdinEOF bool
 // readLine 读取一行输入，只去掉行尾的换行符。标准输入结束时（管道 / 重定向读完、没有 TTY 的容器）
 // 只提示一次并置位 stdinEOF；最后一行缺少换行符时 ReadString 会同时返回数据和 EOF，数据照常返回。
 func readLine(r *bufio.Reader) string {
+	if stdinEOF {
+		fmt.Println()
+		return ""
+	}
 	line, err := r.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		log.Fatalf("错误：无法读取输入: %v", err)
@@ -423,52 +441,69 @@ func promptYesNo(r *bufio.Reader, label string, defaultYes bool) bool {
 	}
 }
 
-// promptPassword 读取密码：在终端上关闭回显；空输入沿用 saved（saved 也可能为空——空密码是合法的）。
-// 密码不做 TrimSpace：首尾的空格也是密码的一部分。
+// promptPassword 读取并校验密码：在终端上关闭回显；空输入沿用 saved（saved 也可能为空——空密码是合法的）。
+// 密码不做 TrimSpace：首尾的空格也是密码的一部分。超过 255 字节时与 promptValid 一样提示重新输入。
 func promptPassword(r *bufio.Reader, label, saved string) string {
-	if saved != "" {
-		fmt.Printf("%s [直接回车保留当前密码]: ", label)
-	} else {
-		fmt.Printf("%s: ", label)
-	}
-	var line string
-	if stdinIsTerminal {
-		fd := int(os.Stdin.Fd())
-		// 回显关闭期间按 Ctrl+C，进程会被信号直接终止，ReadPassword 里恢复终端的 defer 没有机会运行，
-		// 留给用户一个敲什么都不显示的 shell。读密码期间自己接住信号，先恢复终端再退出。
-		if state, err := term.GetState(fd); err == nil {
-			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-			done := make(chan struct{})
-			go func() {
-				select {
-				case <-sigCh:
-					term.Restore(fd, state)
-					fmt.Println()
-					os.Exit(1)
-				case <-done:
-				}
-			}()
-			defer func() { signal.Stop(sigCh); close(done) }()
+	for {
+		if saved != "" {
+			fmt.Printf("%s [直接回车保留当前密码]: ", label)
+		} else {
+			fmt.Printf("%s: ", label)
 		}
-		// term.ReadPassword 直接按字节读文件描述符、读到换行为止，不会越过本行预读，
-		// 所以和复用 bufio.Reader 的其它问题可以交替使用。
-		// 关闭回显后用户敲的回车不会显示出来，读完补一个换行，后面的输出才不会接在提示符后面。
-		b, err := readPassword(fd)
-		fmt.Println()
-		// 在空行上按 Ctrl+D（Windows 上是 Ctrl+Z 回车）时 ReadPassword 返回 io.EOF。其它提问（以及下面的
-		// 非终端分支）遇到 EOF 都是沿用现有的值，这里也当作直接回车，而不是以"无法读取输入: EOF"退出。
-		if err != nil && !errors.Is(err, io.EOF) {
-			log.Fatalf("错误：无法读取输入: %v", err)
+		var line string
+		// 若之前的提问已经通过 bufio.Reader 把粘贴进终端的后续行预读进了缓冲区（r.Buffered() > 0），
+		// 直接走 readPassword(fd) 会绕过缓冲区去读底层 fd，丢掉已粘贴的密码并阻塞等待新输入。
+		if stdinIsTerminal && r.Buffered() == 0 {
+			if stdinEOF {
+				fmt.Println()
+			} else {
+				line = readTerminalPassword(int(os.Stdin.Fd()))
+			}
+		} else {
+			line = readLine(r)
 		}
-		line = string(b)
-	} else {
-		line = readLine(r)
+		v := line
+		if v == "" {
+			v = saved
+		}
+		err := config.ValidateSocksPassword(v)
+		if err == nil || stdinEOF {
+			return v
+		}
+		fmt.Printf(" ✗ %v，请重新输入。\n", err)
 	}
-	if line == "" {
-		return saved
+}
+
+func readTerminalPassword(fd int) string {
+	// 回显关闭期间按 Ctrl+C，进程会被信号直接终止，ReadPassword 里恢复终端的 defer 没有机会运行，
+	// 留给用户一个敲什么都不显示的 shell。读密码期间自己接住信号，先恢复终端再退出。
+	if state, err := term.GetState(fd); err == nil {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		done := make(chan struct{})
+		go func() {
+			select {
+			case <-sigCh:
+				term.Restore(fd, state)
+				fmt.Println()
+				os.Exit(1)
+			case <-done:
+			}
+		}()
+		defer func() { signal.Stop(sigCh); close(done) }()
 	}
-	return line
+	// 关闭回显后用户敲的回车不会显示出来，读完补一个换行，后面的输出才不会接在提示符后面。
+	b, err := readPassword(fd)
+	fmt.Println()
+	// 在空行上按 Ctrl+D（Windows 上是 Ctrl+Z 回车）时 ReadPassword 返回 io.EOF。其它提问（以及非终端分支）
+	// 遇到 EOF 都是沿用现有的值，这里也当作直接回车并置位 stdinEOF，而不是以"无法读取输入: EOF"退出。
+	if err != nil && !errors.Is(err, io.EOF) {
+		log.Fatalf("错误：无法读取输入: %v", err)
+	}
+	if errors.Is(err, io.EOF) {
+		stdinEOF = true
+	}
+	return string(b)
 }
 
 // warnIfPublic 在监听地址不是回环地址时给出提示，避免用户无意中把入口暴露到局域网。
