@@ -14,7 +14,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -489,9 +488,5 @@ func isBenignError(err error) bool {
 	if err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
 		return true
 	}
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
-		return isConnClosedErrno(errno)
-	}
-	return false
+	return isConnClosedError(err)
 }
