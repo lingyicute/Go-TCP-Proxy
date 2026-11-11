@@ -296,8 +296,15 @@ func TestNew_ValidatesAddresses(t *testing.T) {
 	}{
 		{"empty remote", Options{RemoteAddr: "", SocksAddr: "127.0.0.1:1080"}},
 		{"remote without port", Options{RemoteAddr: "example.com", SocksAddr: "127.0.0.1:1080"}},
+		{"remote empty host", Options{RemoteAddr: ":80", SocksAddr: "127.0.0.1:1080"}},
+		{"remote port 0", Options{RemoteAddr: "example.com:0", SocksAddr: "127.0.0.1:1080"}},
+		{"remote host too long", Options{RemoteAddr: strings.Repeat("a", 256) + ":80", SocksAddr: "127.0.0.1:1080"}},
 		{"empty socks", Options{RemoteAddr: "example.com:80", SocksAddr: ""}},
 		{"garbage socks", Options{RemoteAddr: "example.com:80", SocksAddr: "not an address"}},
+		{"socks empty host", Options{RemoteAddr: "example.com:80", SocksAddr: ":1080"}},
+		{"socks port 0", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"}},
+		{"socks bad port", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:99999"}},
+		{"socks host too long", Options{RemoteAddr: "example.com:80", SocksAddr: strings.Repeat("a", 256) + ":1080"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -314,15 +321,21 @@ func TestNew_ValidatesAddresses(t *testing.T) {
 // 回归测试：config 的校验接受 "host:ssh" 这样的服务名端口，但 x/net 的 SOCKS5 握手只认数字，
 // 旧实现原样传下去，于是服务能启动、每一条连接却都在握手时失败。
 func TestNew_ResolvesServiceNamePort(t *testing.T) {
-	srv, err := New(Options{RemoteAddr: "example.com:http", SocksAddr: "127.0.0.1:1080"})
+	srv, err := New(Options{RemoteAddr: "example.com:http", SocksAddr: "127.0.0.1:socks"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if srv.opts.RemoteAddr != "example.com:80" {
-		t.Errorf("服务名端口应换算成数字, 实际 %q", srv.opts.RemoteAddr)
+		t.Errorf("远程服务名端口应换算成数字, 实际 %q", srv.opts.RemoteAddr)
+	}
+	if srv.opts.SocksAddr != "127.0.0.1:1080" {
+		t.Errorf("代理服务名端口应换算成数字, 实际 %q", srv.opts.SocksAddr)
 	}
 	if _, err := New(Options{RemoteAddr: "example.com:no-such-service", SocksAddr: "127.0.0.1:1080"}); err == nil {
 		t.Error("无法解析的端口应在启动时报错")
+	}
+	if _, err := New(Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:no-such-service"}); err == nil {
+		t.Error("代理地址无法解析的端口应在启动时报错")
 	}
 }
 
@@ -649,7 +662,9 @@ func TestShutdownInterruptsPendingDials(t *testing.T) {
 	ln.Close()
 
 	start := time.Now()
-	srv.Shutdown(context.Background())
+	if err := srv.Shutdown(context.Background()); err == nil {
+		t.Fatal("超时打断拨号中的连接时 Shutdown 应返回错误")
+	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("Shutdown 应打断进行中的拨号, 实际用时 %v", elapsed)
 	}

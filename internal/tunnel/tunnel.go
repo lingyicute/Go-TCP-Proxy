@@ -133,23 +133,42 @@ type socksDialer interface {
 	DialWithConn(ctx context.Context, c net.Conn, network, address string) (net.Addr, error)
 }
 
-// New 校验参数并创建 Server。
-func New(opts Options) (*Server, error) {
-	host, port, err := net.SplitHostPort(opts.RemoteAddr)
+// resolveDialAddr 校验主动连接地址（host 非空且不超过 255 字节、端口在 1..65535 内），
+// 并把服务名端口换算成数字：SOCKS5 报文里的端口是 2 字节整数，x/net 在握手与组装错误时都直接用
+// strconv.Atoi 解析端口，"example.com:ssh" 或 "127.0.0.1:socks" 原样传下去会在连接阶段出错。
+func resolveDialAddr(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return nil, fmt.Errorf("远程目标地址无效 %q: %w", opts.RemoteAddr, err)
+		return "", err
 	}
-	// SOCKS5 请求里的端口是 2 字节整数，x/net 握手时直接用 strconv.Atoi 解析它：
-	// "example.com:ssh" 这样的服务名能通过 config 的校验（net.LookupPort 认识它），
-	// 却会让之后每一条连接都在握手阶段失败，所以启动时就换算成数字端口。
+	if host == "" {
+		return "", errors.New("缺少主机名")
+	}
+	if len(host) > 255 {
+		return "", fmt.Errorf("主机名长度 %d 字节，超过 255 字节上限", len(host))
+	}
 	portNum, err := net.LookupPort("tcp", port)
 	if err != nil {
+		return "", err
+	}
+	if portNum == 0 {
+		return "", errors.New("端口不能为 0")
+	}
+	return net.JoinHostPort(host, strconv.Itoa(portNum)), nil
+}
+
+// New 校验参数并创建 Server。
+func New(opts Options) (*Server, error) {
+	remoteAddr, err := resolveDialAddr(opts.RemoteAddr)
+	if err != nil {
 		return nil, fmt.Errorf("远程目标地址无效 %q: %w", opts.RemoteAddr, err)
 	}
-	opts.RemoteAddr = net.JoinHostPort(host, strconv.Itoa(portNum))
-	if _, _, err := net.SplitHostPort(opts.SocksAddr); err != nil {
+	opts.RemoteAddr = remoteAddr
+	socksAddr, err := resolveDialAddr(opts.SocksAddr)
+	if err != nil {
 		return nil, fmt.Errorf("Socks5 代理地址无效 %q: %w", opts.SocksAddr, err)
 	}
+	opts.SocksAddr = socksAddr
 	if opts.DialTimeout <= 0 {
 		opts.DialTimeout = DefaultDialTimeout
 	}
@@ -268,11 +287,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		err = fmt.Errorf("停机被中断，已强制关闭剩余连接: %w", ctx.Err())
 	}
 
-	s.cancelDial()
 	s.mu.Lock()
 	// 计时器 / ctx 与 done 同时就绪时 select 随机选一个；ctx 已取消时 done 还可能差一步才关闭。
 	// 会话在 wg.Done 之前就已 untrack，此处集合为空就说明所有连接都已自然结束，不算强制关闭。
+	// 必须在 cancelDial 之前统计：cancelDial 会立即唤醒卡在拨号阶段的 goroutine 并触发 untrack，
+	// 先取消再加锁会让被强关的拨号连接漏算。
 	forced := len(s.sessions)
+	s.cancelDial()
 	for ss := range s.sessions {
 		ss.closeAll()
 	}
