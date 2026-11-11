@@ -122,12 +122,20 @@ def fetch_font(local: Path | None, url: str, refresh: bool) -> tuple[Path, bool]
     if got < 4096:
         tmp.unlink(missing_ok=True)
         die("下载到的字体文件过小，可能拿到了错误页面。")
-    try:  # 放进缓存，下次（或 CI 下一次）就不必重新下载
+    # 放进缓存，下次（或 CI 下一次）就不必重新下载。先写到同目录的临时文件再 os.replace：
+    # 直接往 CACHE_TTF 里拷，中途被杀掉（Ctrl+C、CI 取消）就会留下一个残缺的缓存，
+    # 之后每次运行都会直接拿它去子集化；失败时原有的缓存也保持原样，不会被删掉。
+    part = CACHE_TTF.with_name(f"{CACHE_TTF.name}.{os.getpid()}.part")
+    try:
         CACHE_TTF.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(tmp, CACHE_TTF)
+        shutil.copyfile(tmp, part)
+        os.replace(part, CACHE_TTF)
         log(f"已缓存到 {CACHE_TTF}")
     except OSError:
-        CACHE_TTF.unlink(missing_ok=True)
+        try:
+            part.unlink(missing_ok=True)
+        except OSError:
+            pass
     return tmp, True
 
 
