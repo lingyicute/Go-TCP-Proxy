@@ -187,6 +187,8 @@ func TestValidate(t *testing.T) {
 		"socks port 0":          {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"},
 		"garbage":               {LocalAddr: "127.0.0.1:1", RemoteAddr: "http://example.com", SocksAddr: "127.0.0.1:1080"},
 		"password without user": {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksPassword: "secret"},
+		"remote host too long":  {LocalAddr: "127.0.0.1:1", RemoteAddr: strings.Repeat("a", 256) + ":80", SocksAddr: "127.0.0.1:1080"},
+		"socks host too long":   {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: strings.Repeat("a", 256) + ":1080"},
 		"user too long":         {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("u", 256)},
 		"user too long utf8":    {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("密", 86)}, // 86 个汉字 = 258 字节
 		"password too long":     {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: "alice", SocksPassword: strings.Repeat("p", 256)},
@@ -200,17 +202,18 @@ func TestValidate(t *testing.T) {
 
 // 回归测试：Save 用 rename 做原子替换，旧实现直接对着传入的路径做，配置文件是符号链接时
 // 链接本身会被换成普通文件，它原本指向的那一份（例如 dotfiles 仓库里的）不再更新。
+// 目标文件尚未创建（悬空符号链接）时同样应写进链接指向的位置。
 func TestSave_WritesThroughSymlink(t *testing.T) {
 	dir := t.TempDir()
-	target := filepath.Join(dir, "dotfiles", "config.json")
-	if err := Save(target, Defaults); err != nil {
-		t.Fatal(err)
-	}
+	target := filepath.Join(dir, "dotfiles", "config.json") // 父目录和目标文件都还不存在
 	link := filepath.Join(dir, "config.json")
-	if err := os.Symlink(target, link); err != nil {
+	if err := os.Symlink(filepath.Join("dotfiles", "config.json"), link); err != nil {
 		t.Skipf("当前环境无法创建符号链接: %v", err)
 	}
 
+	if err := Save(link, Defaults); err != nil {
+		t.Fatal(err)
+	}
 	want := Defaults
 	want.RemoteAddr = "git.internal:22"
 	if err := Save(link, want); err != nil {
