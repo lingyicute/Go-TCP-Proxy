@@ -83,11 +83,16 @@ func Load(path string) (Config, error) {
 // 没有 fsync 的话，rename 之后、数据真正落盘之前断电，部分文件系统会留下一个空的 config.json，
 // 下次启动就会在非交互模式下因"解析配置文件失败"而拒绝启动。
 func Save(path string, cfg Config) error {
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
+	// 配置文件是给人手动编辑的，不是嵌进 HTML 的：json.Marshal 默认会把 & < > 转义成 \u0026 这类形式，
+	// 密码 "a&b" 落盘后就成了 "a\u0026b"，用户打开文件核对或修改时根本认不出来。Encode 会自带结尾换行。
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(cfg); err != nil {
 		return fmt.Errorf("序列化配置: %w", err)
 	}
-	data = append(data, '\n')
+	data := buf.Bytes()
 
 	// 配置文件是符号链接时（dotfiles 仓库里常见的做法）写到它指向的文件：rename 换掉的是目录项，
 	// 直接对着 path 做会把链接本身换成一个普通文件，仓库里的那一份从此不再更新。

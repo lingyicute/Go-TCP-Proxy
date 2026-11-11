@@ -238,3 +238,20 @@ func TestSave_WritesThroughSymlink(t *testing.T) {
 		t.Errorf("链接指向的目录里不应留下临时文件, 实际 %d 个条目", len(entries))
 	}
 }
+
+// 配置文件是给人看、给人改的：& < > 不能被转义成 \u0026 之类，否则手动核对密码时认不出来。
+func TestSave_DoesNotEscapeHTMLCharacters(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	want := Defaults
+	want.SocksUser, want.SocksPassword = "alice", "a&b<c>d"
+	if err := Save(path, want); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `"a&b<c>d"`) || !strings.HasSuffix(string(data), "}\n") {
+		t.Errorf("配置文件里的字符被转义了或缺少结尾换行:\n%s", data)
+	}
+	if got, err := Load(path); err != nil || got != want {
+		t.Fatalf("往返不一致: 期望 %+v, 实际 %+v, err=%v", want, got, err)
+	}
+}
