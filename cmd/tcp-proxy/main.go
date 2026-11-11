@@ -341,7 +341,7 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 		cfg.SocksAddr = promptValid(stdin, " 请输入 Socks5 代理地址和端口", cfg.SocksAddr, config.ValidateDialAddr)
 		// 认证用一个是/否问题开头：不需要认证的多数用户只多按一次回车；
 		// 回答"否"同时清掉以前保存的凭据，这也是交互模式下取消认证的方式。
-		if promptYesNo(stdin, " Socks5 代理是否需要用户名/密码认证", cfg.SocksUser != "") {
+		if promptYesNo(stdin, " Socks5 代理是否需要用户名/密码认证", cfg.SocksUser != "" || cfg.SocksPassword != "") {
 			cfg.SocksUser = promptValid(stdin, " 请输入 Socks5 代理用户名", cfg.SocksUser, config.ValidateSocksUser)
 			if cfg.SocksUser == "" {
 				// 只有标准输入提前结束才会走到这里：明确要求认证却没有用户名，
