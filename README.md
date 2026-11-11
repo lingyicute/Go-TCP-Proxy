@@ -135,7 +135,7 @@ tcp-proxy -c ~/.config/go-proxy-tunnel/ssh.json -r your-server:22
 | 远程目标地址 | `remote_addr` | `example.com:80` | 你真正想连接的服务，支持域名或 IP |
 | Socks5 代理地址 | `socks_addr` | `127.0.0.1:1080` | 中间经过的 Socks5 代理 |
 | Socks5 用户名 | `socks_user` | （空） | 代理需要用户名/密码认证时填写，留空表示不认证 |
-| Socks5 密码 | `socks_password` | （空） | 也可以用命令行参数 `-socks-password` 或环境变量 `TCP_PROXY_SOCKS_PASSWORD` 提供，优先级：参数 > 环境变量 > 配置文件 |
+| Socks5 密码 | `socks_password` | （空） | 也可以用命令行参数 `-socks-password` 或环境变量 `TCP_PROXY_SOCKS_PASSWORD` 提供，优先级：参数 > 环境变量 > 配置文件；没有配置用户名时环境变量会被忽略 |
 
 命令行参数的优先级高于配置文件。只有在监听成功之后配置才会被写回文件——输错的地址不会变成下次的默认值。
 
