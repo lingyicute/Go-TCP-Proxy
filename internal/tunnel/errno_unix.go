@@ -18,7 +18,7 @@ func isConnClosedError(err error) bool {
 		return false
 	}
 	switch errno {
-	case syscall.ECONNRESET, syscall.ECONNABORTED, syscall.EPIPE, syscall.ENOTCONN, syscall.EPROTOTYPE:
+	case syscall.ECONNRESET, syscall.ECONNABORTED, syscall.EPIPE, syscall.ENOTCONN, syscall.ESHUTDOWN, syscall.EPROTOTYPE:
 		return true
 	}
 	return false
