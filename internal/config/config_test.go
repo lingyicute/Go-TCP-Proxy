@@ -237,6 +237,32 @@ func TestSave_WritesThroughSymlink(t *testing.T) {
 	if entries, _ := os.ReadDir(filepath.Dir(target)); len(entries) != 1 {
 		t.Errorf("链接指向的目录里不应留下临时文件, 实际 %d 个条目", len(entries))
 	}
+
+	// 父目录本身是悬空符号链接（例如把整个 ~/.config/go-proxy-tunnel 链接到尚未创建的 dotfiles 子目录）
+	danglingDir := filepath.Join(dir, "linked-dir")
+	realDir := filepath.Join(dir, "repo", "deep", "tunnel")
+	if err := os.Symlink(filepath.Join("repo", "deep", "tunnel"), danglingDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(filepath.Join(danglingDir, FileName), want); err != nil {
+		t.Fatalf("父目录是悬空符号链接时 Save 不应失败: %v", err)
+	}
+	if got, err := Load(filepath.Join(realDir, FileName)); err != nil || got != want {
+		t.Errorf("应写进目录链接指向的位置: %+v err=%v", got, err)
+	}
+
+	// 目录符号链接内部的相对路径悬空文件符号链接：.. 应相对于真实目录而非链接名解析
+	relTarget := filepath.Join(dir, "repo", "deep", "shared.json")
+	relLink := filepath.Join(realDir, "rel.json")
+	if err := os.Symlink(filepath.Join("..", "shared.json"), relLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(filepath.Join(danglingDir, "rel.json"), want); err != nil {
+		t.Fatalf("通过目录符号链接写入相对文件符号链接失败: %v", err)
+	}
+	if got, err := Load(relTarget); err != nil || got != want {
+		t.Errorf("相对符号链接应相对于真实父目录解析: %+v err=%v", got, err)
+	}
 }
 
 // 配置文件是给人看、给人改的：& < > 不能被转义成 \u0026 之类，否则手动核对密码时认不出来。

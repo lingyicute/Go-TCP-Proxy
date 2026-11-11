@@ -170,24 +170,40 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// resolveSymlink 解开 path 的符号链接链；即使目标文件尚未创建（悬空符号链接），
-// 也顺着链接找到最终应写入的路径，避免首次保存把符号链接覆盖成普通文件。
+// resolveSymlink 解开 path 的符号链接链；即使目标文件或父目录尚未创建（悬空符号链接），
+// 也顺着链接找到最终应写入的路径，避免首次保存把符号链接覆盖成普通文件或因父目录是悬空链接而创建失败。
 func resolveSymlink(path string) string {
-	cur := path
-	for range 40 {
-		if target, err := filepath.EvalSymlinks(cur); err == nil {
-			return target
+	steps := 40
+	var resolve func(string) string
+	resolve = func(cur string) string {
+		for steps > 0 {
+			if target, err := filepath.EvalSymlinks(cur); err == nil {
+				return target
+			}
+			dir, base := filepath.Dir(cur), filepath.Base(cur)
+			if dir != cur {
+				rdir := resolve(dir)
+				if steps == 0 {
+					return path
+				}
+				if rdir != dir {
+					cur = filepath.Join(rdir, base)
+					continue
+				}
+			}
+			target, err := os.Readlink(cur)
+			if err != nil {
+				return cur
+			}
+			steps--
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(dir, target)
+			}
+			cur = filepath.Clean(target)
 		}
-		target, err := os.Readlink(cur)
-		if err != nil {
-			return cur
-		}
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(cur), target)
-		}
-		cur = filepath.Clean(target)
+		return path
 	}
-	return path
+	return resolve(path)
 }
 
 // ValidateSocksUser 校验 Socks5 用户名：非空且不超过 255 字节。
