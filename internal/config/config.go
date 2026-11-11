@@ -89,10 +89,7 @@ func Save(path string, cfg Config) error {
 
 	// 配置文件是符号链接时（dotfiles 仓库里常见的做法）写到它指向的文件：rename 换掉的是目录项，
 	// 直接对着 path 做会把链接本身换成一个普通文件，仓库里的那一份从此不再更新。
-	// 文件还不存在时 EvalSymlinks 会失败，按原路径新建即可。
-	if target, err := filepath.EvalSymlinks(path); err == nil {
-		path = target
-	}
+	path = resolveSymlink(path)
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -158,20 +155,47 @@ func (c Config) Validate() error {
 	if err := ValidateSocksUser(c.SocksUser); err != nil {
 		return fmt.Errorf("Socks5 代理用户名无效: %w", err)
 	}
-	if len(c.SocksPassword) > MaxSocksCredentialLen {
-		return fmt.Errorf("Socks5 代理密码无效: 长度 %d 字节，超过 RFC 1929 允许的 %d 字节", len(c.SocksPassword), MaxSocksCredentialLen)
+	if err := ValidateSocksPassword(c.SocksPassword); err != nil {
+		return fmt.Errorf("Socks5 代理密码无效: %w", err)
 	}
 	return nil
 }
 
+// resolveSymlink 解开 path 的符号链接链；即使目标文件尚未创建（悬空符号链接），
+// 也顺着链接找到最终应写入的路径，避免首次保存把符号链接覆盖成普通文件。
+func resolveSymlink(path string) string {
+	cur := path
+	for range 40 {
+		if target, err := filepath.EvalSymlinks(cur); err == nil {
+			return target
+		}
+		target, err := os.Readlink(cur)
+		if err != nil {
+			return cur
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(cur), target)
+		}
+		cur = filepath.Clean(target)
+	}
+	return path
+}
+
 // ValidateSocksUser 校验 Socks5 用户名：非空且不超过 255 字节。
-// 密码允许为空（RFC 1929 的报文格式允许，x/net 也接受），所以没有对应的校验函数。
 func ValidateSocksUser(user string) error {
 	if user == "" {
 		return errors.New("不能为空")
 	}
 	if len(user) > MaxSocksCredentialLen {
 		return fmt.Errorf("长度 %d 字节，超过 RFC 1929 允许的 %d 字节", len(user), MaxSocksCredentialLen)
+	}
+	return nil
+}
+
+// ValidateSocksPassword 校验 Socks5 密码：允许为空（RFC 1929 允许，x/net 也接受），但不能超过 255 字节。
+func ValidateSocksPassword(password string) error {
+	if len(password) > MaxSocksCredentialLen {
+		return fmt.Errorf("长度 %d 字节，超过 RFC 1929 允许的 %d 字节", len(password), MaxSocksCredentialLen)
 	}
 	return nil
 }
@@ -192,6 +216,9 @@ func validateAddr(addr string, listen bool) error {
 	}
 	if host == "" && !listen {
 		return fmt.Errorf("%q 缺少主机名", addr)
+	}
+	if len(host) > 255 {
+		return fmt.Errorf("%q 主机名长度 %d 字节，超过 255 字节上限", addr, len(host))
 	}
 	if port == "" {
 		return fmt.Errorf("%q 缺少端口", addr)
