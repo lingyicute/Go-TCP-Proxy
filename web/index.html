@@ -590,12 +590,14 @@ window.GTP = (function(){
   try{
     var s = JSON.parse(localStorage.getItem(LS));
     if(s && Number.isInteger(s.seed) && s.seed >= 0 && s.seed < SEEDS.length){
-      state.seed = s.seed; state.dark = !!s.dark; state.saved = true;
+      state.seed = s.seed;
+      if(s.saved){ state.dark = !!s.dark; state.saved = true; }
     }
   }catch(e){}
-  var themingTimer, themed = [];
+  var themingTimer, themed = [], knownDark = state.dark;
   function unmark(){ themed.forEach(function(el){ el.classList.remove('theming'); }); themed = []; }
   function apply(animate){
+    knownDark = state.dark;
     var sd = SEEDS[state.seed], pal = palette(sd.h, sd.s, state.dark), r = document.documentElement, k;
     if(animate){
       // 过渡只挂给 html 和此刻与视口相交的顶层区块，视口外的直接换色（原因见 theming 的样式注释）
@@ -616,7 +618,7 @@ window.GTP = (function(){
     if(m) m.setAttribute('content', H(pal['surface'][0], pal['surface'][1], pal['surface'][2]));
     if(window.GTP_UI) try{ window.GTP_UI(state, SEEDS); }catch(e){}
   }
-  function save(){ state.saved = true; try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
+  function save(){ if(state.dark !== knownDark) state.saved = true; try{ localStorage.setItem(LS, JSON.stringify(state)); }catch(e){} }
   apply(false);
   mql.addEventListener('change', function(e){ if(!state.saved){ state.dark = e.matches; apply(true); } });
   return { SEEDS:SEEDS, state:state, apply:apply, save:save };
