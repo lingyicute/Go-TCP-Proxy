@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -447,10 +448,13 @@ func (s *Server) dial(ctx context.Context) (*net.TCPConn, error) {
 //     直接关掉两头，让另一个方向的搬运 goroutine 也能立刻从阻塞的 Read 中退出。
 func (s *Server) pipe(ss *session, dst, src *net.TCPConn, direction string) {
 	var err error
-	if s.opts.IdleTimeout > 0 {
+	switch {
+	case s.opts.IdleTimeout > 0:
 		err = copyWithIdleTimeout(ss, dst, src, s.opts.IdleTimeout)
-	} else {
-		_, err = io.Copy(dst, src) // Linux 上 dst 是 *net.TCPConn 时走 splice 零拷贝
+	case runtime.GOOS == "linux":
+		_, err = io.Copy(dst, src) // Linux 上 *net.TCPConn 之间走内核 splice 零拷贝
+	default:
+		err = copyPooled(dst, src)
 	}
 	if err == nil {
 		if err := dst.CloseWrite(); err != nil && !isBenignError(err) {
@@ -473,8 +477,27 @@ func (s *Server) pipe(ss *session, dst, src *net.TCPConn, direction string) {
 // errIdleTimeout 表示整条会话在 IdleTimeout 内没有任何数据流动。
 var errIdleTimeout = errors.New("会话空闲超时")
 
-// copyBufPool 复用 copyWithIdleTimeout 的搬运缓冲区：每条会话两个方向各要 32 KiB，
-// 短连接多的场景下每次都 make 会给 GC 带来可观的压力。存指针以免 Put 时发生额外分配。
+// tcpReader / tcpWriter 屏蔽 *net.TCPConn 上的 WriteTo / ReadFrom：
+// 非 Linux 平台没有 splice，直接调 io.Copy(dst, src) 会经由 genericWriteTo -> genericReadFrom
+// 退回到无缓冲区的 io.Copy，每次搬运都重新 make 一个 32 KiB 切片（即使调 io.CopyBuffer 也会被
+// WriteTo / ReadFrom 抢先截走，传入的缓冲区完全用不上）。结构体只含单个指针，接口装箱零分配。
+type (
+	tcpReader struct{ c *net.TCPConn }
+	tcpWriter struct{ c *net.TCPConn }
+)
+
+func (r tcpReader) Read(p []byte) (int, error)  { return r.c.Read(p) }
+func (w tcpWriter) Write(p []byte) (int, error) { return w.c.Write(p) }
+
+func copyPooled(dst, src *net.TCPConn) error {
+	bp := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(bp)
+	_, err := io.CopyBuffer(tcpWriter{dst}, tcpReader{src}, *bp)
+	return err
+}
+
+// copyBufPool 复用用户态转发的 32 KiB 搬运缓冲区（IdleTimeout 路径与非 Linux 默认路径共用）：
+// 每条会话两个方向各要一块，短连接多的场景下每次都 make 会给 GC 带来可观的压力。存指针以免 Put 时发生额外分配。
 var copyBufPool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 32*1024)
