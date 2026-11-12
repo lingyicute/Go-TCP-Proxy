@@ -10,10 +10,12 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -555,10 +557,11 @@ func socksIsSelf(listen net.Addr, socksAddr string) bool {
 	if n, err := net.LookupPort("tcp", port); err != nil || n != ln.Port {
 		return false
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
+	ap, err := netip.ParseAddr(host)
+	if err != nil {
 		return false
 	}
+	ip := net.IP(ap.AsSlice())
 	if ip.IsUnspecified() {
 		// 拨号时通配地址表示本机（net.Dial 的约定），实际连的是同一地址族的回环地址。
 		if ip.To4() != nil {
@@ -567,7 +570,22 @@ func socksIsSelf(listen net.Addr, socksAddr string) bool {
 			ip = net.IPv6loopback
 		}
 	}
-	return ip.Equal(ln.IP)
+	if !ip.Equal(ln.IP) {
+		return false
+	}
+	if ip.To4() != nil {
+		return true
+	}
+	zone := ap.Zone()
+	if zone != ln.Zone && zone != "" && ln.Zone != "" {
+		// 拨号地址里可能写的是数字网卡索引（如 fe80::1%2），而 ln.Addr() 里已被内核换算成网卡名。
+		if idx, err := strconv.Atoi(zone); err == nil {
+			if ifi, err := net.InterfaceByIndex(idx); err == nil {
+				zone = ifi.Name
+			}
+		}
+	}
+	return zone == ln.Zone
 }
 
 // warnIfPublic 在监听地址不是回环地址时给出提示，避免用户无意中把入口暴露到局域网。
