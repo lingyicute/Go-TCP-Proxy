@@ -87,6 +87,10 @@ type options struct {
 	socks            string
 	socksUser        string
 	socksPassword    string
+	configSet        bool
+	listenSet        bool
+	remoteSet        bool
+	socksSet         bool
 	socksUserSet     bool
 	socksPasswordSet bool
 	yes              bool
@@ -95,6 +99,10 @@ type options struct {
 	shutdownTimeout  time.Duration
 	idleTimeout      time.Duration
 	showVersion      bool
+}
+
+func (o *options) isInteractive() bool {
+	return !o.yes && !o.listenSet && !o.remoteSet && !o.socksSet
 }
 
 func parseFlags(args []string) (*options, error) {
@@ -142,6 +150,14 @@ func parseFlags(args []string) (*options, error) {
 	}
 	fs.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "config", "c":
+			o.configSet = true
+		case "listen", "l":
+			o.listenSet = true
+		case "remote", "r":
+			o.remoteSet = true
+		case "socks", "s":
+			o.socksSet = true
 		case "socks-user":
 			o.socksUserSet = true
 		case "socks-password":
@@ -268,11 +284,15 @@ func run(args []string) error {
 // resolveConfig 完成配置的定位、加载、命令行覆盖、交互式确认与校验，
 // 返回最终配置以及监听成功后应写回的路径；路径为空表示本次没有可用的配置文件。
 func resolveConfig(opts *options) (config.Config, string, error) {
-	interactive := !opts.yes && opts.listen == "" && opts.remote == "" && opts.socks == ""
+	interactive := opts.isInteractive()
 
 	// 1. 定位配置文件
 	configPath := opts.configPath
-	if configPath == "" {
+	if opts.configSet {
+		if configPath == "" {
+			return config.Config{}, "", errors.New("配置文件路径不能为空")
+		}
+	} else if configPath == "" {
 		var err error
 		if configPath, err = config.DefaultPath(); err != nil {
 			// 拿不到用户配置目录（典型场景：FROM scratch 的容器、DynamicUser 的 systemd 服务，
@@ -305,21 +325,23 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 	}
 
 	// 3. 命令行参数覆盖配置文件（密码还可以来自环境变量，优先级：参数 > 环境变量 > 配置文件）
-	if opts.listen != "" {
+	if opts.listenSet {
 		cfg.LocalAddr = opts.listen
 	}
-	if opts.remote != "" {
+	if opts.remoteSet {
 		cfg.RemoteAddr = opts.remote
 	}
-	if opts.socks != "" {
+	if opts.socksSet {
 		cfg.SocksAddr = opts.socks
 	}
+	passwordFromFile := !opts.socksPasswordSet && cfg.SocksPassword != ""
 	if opts.socksUserSet {
 		// 清空用户名就是取消认证；换成另一个用户名时，配置文件里的密码属于原来的账号，
 		// 不能顶着新用户名悄悄发给代理（等于把旧账号的密码泄露出去，认证也注定失败）。
 		// 新账号的密码仍可以来自下面的 -socks-password 或环境变量。
 		if opts.socksUser == "" || opts.socksUser != cfg.SocksUser {
 			cfg.SocksPassword = ""
+			passwordFromFile = false
 		}
 		cfg.SocksUser = opts.socksUser
 	}
@@ -329,6 +351,7 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 		if pw := os.Getenv(passwordEnv); pw != "" {
 			if interactive || cfg.SocksUser != "" {
 				cfg.SocksPassword = pw
+				passwordFromFile = false
 			} else {
 				// 环境变量多半是在 shell 里常年导出着的，并不是针对这一次运行的指示：这个实例没有配置用户名时
 				// 它无处可用，与 PGPASSWORD 一样忽略即可。照单全收的话，同一个 shell 里启动任何不需要认证的
@@ -347,11 +370,16 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 		// 认证用一个是/否问题开头：不需要认证的多数用户只多按一次回车；
 		// 回答"否"同时清掉以前保存的凭据，这也是交互模式下取消认证的方式。
 		if promptYesNo(stdin, " Socks5 代理是否需要用户名/密码认证", cfg.SocksUser != "" || cfg.SocksPassword != "") {
+			prevUser := cfg.SocksUser
 			cfg.SocksUser = promptValid(stdin, " 请输入 Socks5 代理用户名", cfg.SocksUser, config.ValidateSocksUser)
 			if cfg.SocksUser == "" {
 				// 只有标准输入提前结束才会走到这里：明确要求认证却没有用户名，
 				// 不能静默降级成"不认证"启动。
 				return cfg, "", errors.New("已选择需要认证，但没有提供 Socks5 代理用户名")
+			}
+			if passwordFromFile && cfg.SocksUser != prevUser {
+				// 与 -socks-user 一致：换成另一个用户名时，配置文件里属于旧账号的密码不能继续沿用。
+				cfg.SocksPassword = ""
 			}
 			cfg.SocksPassword = promptPassword(stdin, " 请输入 Socks5 代理密码", cfg.SocksPassword)
 		} else {
@@ -365,7 +393,7 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 			return cfg, "", errors.New("标准输入已结束且没有可用的配置文件，无法确定远程目标地址；" +
 				"请通过 -r 指定（非交互场景建议使用 -y 或 -l/-r/-s 参数）")
 		}
-	} else if errors.Is(loadErr, config.ErrNotFound) && opts.remote == "" {
+	} else if errors.Is(loadErr, config.ErrNotFound) && !opts.remoteSet {
 		// 默认的 example.com:80 只是占位符，非交互模式下不应被静默采用。
 		return cfg, "", errors.New("未找到配置文件，非交互模式下必须通过 -r 指定远程目标地址")
 	}
