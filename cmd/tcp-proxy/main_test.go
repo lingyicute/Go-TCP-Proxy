@@ -570,6 +570,7 @@ func TestSaveConfig_LeavesUnchangedFileAlone(t *testing.T) {
 func TestSocksIsSelf(t *testing.T) {
 	v4 := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1080}
 	v6 := &net.TCPAddr{IP: net.IPv6loopback, Port: 1080}
+	llEth0 := &net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 1080, Zone: "eth0"}
 	wild := &net.TCPAddr{IP: net.IPv6unspecified, Port: 1080}
 	cases := []struct {
 		listen net.Addr
@@ -582,6 +583,9 @@ func TestSocksIsSelf(t *testing.T) {
 		{v4, "[::ffff:127.0.0.1]:1080", true},
 		{v6, "[::1]:1080", true},
 		{v6, "[::]:1080", true},
+		{llEth0, "[fe80::1%eth0]:1080", true},
+		{llEth0, "[fe80::1%eth1]:1080", false},
+		{llEth0, "[fe80::1]:1080", false},
 		{v4, "127.0.0.1:1081", false},
 		{v4, "127.0.0.2:1080", false},
 		{v4, "[::1]:1080", false}, // 另一个地址族上可以是别的进程
@@ -594,6 +598,18 @@ func TestSocksIsSelf(t *testing.T) {
 	for _, tc := range cases {
 		if got := socksIsSelf(tc.listen, tc.socks); got != tc.want {
 			t.Errorf("socksIsSelf(%v, %q) = %v, 期望 %v", tc.listen, tc.socks, got, tc.want)
+		}
+	}
+	if ifaces, err := net.Interfaces(); err == nil {
+		for _, ifi := range ifaces {
+			if ifi.Name != "" && ifi.Index >= 1 && ifi.Index <= 9 {
+				ln := &net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 1080, Zone: ifi.Name}
+				socks := "[fe80::1%" + string(rune('0'+ifi.Index)) + "]:1080"
+				if !socksIsSelf(ln, socks) {
+					t.Errorf("数字网卡索引 %q 应匹配网卡 %q", socks, ifi.Name)
+				}
+				break
+			}
 		}
 	}
 }
