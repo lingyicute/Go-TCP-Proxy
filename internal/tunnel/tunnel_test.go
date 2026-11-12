@@ -1119,3 +1119,40 @@ func TestNew_ValidatesSocksCredentials(t *testing.T) {
 		t.Errorf("255 字节的凭据应合法: %v", err)
 	}
 }
+
+func TestCopyPooled(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	payload := strings.Repeat("pooled-copy-data-", 9000) // > 32 KiB，覆盖多轮读写
+	errCh := make(chan error, 1)
+	go func() {
+		srvConn, err := ln.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer srvConn.Close()
+		tcp := srvConn.(*net.TCPConn)
+		err = copyPooled(tcp, tcp)
+		tcp.CloseWrite()
+		errCh <- err
+	}()
+
+	c := dialTCP(t, ln.Addr().String())
+	go func() {
+		c.Write([]byte(payload))
+		c.CloseWrite()
+	}()
+	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	got, err := io.ReadAll(c)
+	if err != nil || string(got) != payload {
+		t.Fatalf("copyPooled 数据不一致: 期望 %d 字节, 实际 %d 字节, err=%v", len(payload), len(got), err)
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("copyPooled 返回错误: %v", err)
+	}
+}
