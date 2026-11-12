@@ -150,6 +150,7 @@ func TestParseFlags(t *testing.T) {
 		{nil, false, true},
 		{[]string{"-y"}, false, false},
 		{[]string{"-r", "a:1"}, false, false},
+		{[]string{"-r", ""}, false, false},
 		{[]string{"-l", ":1", "-r", "a:1", "-s", "b:1", "--no-save"}, false, false},
 		{[]string{"-shutdown-timeout", "1s", "-dial-timeout", "2s"}, false, true},
 		{[]string{"-socks-user", "alice", "-socks-password", "pw"}, false, true}, // 凭据参数不改变交互与否
@@ -166,11 +167,61 @@ func TestParseFlags(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		got := !o.yes && o.listen == "" && o.remote == "" && o.socks == ""
+		got := o.isInteractive()
 		if got != tc.interactive {
 			t.Errorf("%v: interactive=%v, want %v", tc.args, got, tc.interactive)
 		}
 	}
+}
+
+func TestResolveConfig_EmptyFlagsAreRejected(t *testing.T) {
+	useStdin(t, "")
+	path := filepath.Join(t.TempDir(), "config.json")
+	saved := config.Config{LocalAddr: "127.0.0.1:18080", RemoteAddr: "git.internal:22", SocksAddr: "10.0.0.1:1080"}
+	if err := config.Save(path, saved); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"-c", path, "-r", ""},
+		{"-c", path, "-l", "", "-r", "db.internal:5432"},
+		{"-c", path, "-s", "", "-r", "db.internal:5432"},
+		{"-c", "", "-r", "db.internal:5432"},
+	} {
+		if _, _, err := resolveConfig(mustParse(t, args...)); err == nil {
+			t.Errorf("显式传入空参数 %v 应报错，而不是静默沿用旧配置", args)
+		}
+	}
+}
+
+func TestResolveConfig_InteractiveSwitchingUserDropsSavedPassword(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	saved := config.Config{LocalAddr: "127.0.0.1:18080", RemoteAddr: "git.internal:22", SocksAddr: "10.0.0.1:1080", SocksUser: "alice", SocksPassword: "alice-pw"}
+	if err := config.Save(path, saved); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv(passwordEnv, "")
+	useStdin(t, "\n\n\ny\nbob\n\n")
+	cfg, _, err := resolveConfig(mustParse(t, "-c", path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SocksUser != "bob" || cfg.SocksPassword != "" {
+		t.Errorf("交互模式换成新用户名时不应沿用旧账号密码: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
+	}
+
+	t.Setenv(passwordEnv, "env-pw")
+	useStdin(t, "\n\n\ny\nbob\n\n")
+	cfg, _, err = resolveConfig(mustParse(t, "-c", path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SocksUser != "bob" || cfg.SocksPassword != "env-pw" {
+		t.Errorf("交互模式换用户名时仍应保留本次环境变量提供的密码: user=%q password=%q", cfg.SocksUser, cfg.SocksPassword)
+	}
+}
+
+func TestParseFlags_More(t *testing.T) {
 
 	o, err := parseFlags([]string{"-shutdown-timeout", "1s", "-dial-timeout", "2s", "-idle-timeout", "3m"})
 	if err != nil || o.shutdownTimeout != time.Second || o.dialTimeout != 2*time.Second || o.idleTimeout != 3*time.Minute {
