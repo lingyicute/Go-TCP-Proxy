@@ -305,7 +305,11 @@ func TestNew_ValidatesAddresses(t *testing.T) {
 		{"socks empty host", Options{RemoteAddr: "example.com:80", SocksAddr: ":1080"}},
 		{"socks port 0", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:0"}},
 		{"socks bad port", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:99999"}},
+		{"remote ipv6 with zone", Options{RemoteAddr: "[fe80::1%eth0]:22", SocksAddr: "127.0.0.1:1080"}},
 		{"socks host with space", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1 :1080"}},
+		{"socks empty zone", Options{RemoteAddr: "example.com:80", SocksAddr: "[fe80::1%]:1080"}},
+		{"socks ipv4 with zone", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1%lo:1080"}},
+		{"socks domain percent", Options{RemoteAddr: "example.com:80", SocksAddr: "example.com% 2:1080"}},
 		{"socks host too long", Options{RemoteAddr: "example.com:80", SocksAddr: strings.Repeat("a", 256) + ":1080"}},
 	}
 	for _, tc := range cases {
@@ -315,7 +319,7 @@ func TestNew_ValidatesAddresses(t *testing.T) {
 			}
 		})
 	}
-	if _, err := New(Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"}); err != nil {
+	if _, err := New(Options{RemoteAddr: "example.com:80", SocksAddr: "[fe80::2%以太网 2]:1080"}); err != nil {
 		t.Fatalf("合法参数不应报错: %v", err)
 	}
 }
