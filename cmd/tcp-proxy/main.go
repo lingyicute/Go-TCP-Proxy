@@ -340,7 +340,7 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 	if interactive {
 		printBanner()
 		cfg.LocalAddr = promptValid(stdin, " 请输入本地监听地址和端口", cfg.LocalAddr, config.ValidateListenAddr)
-		cfg.RemoteAddr = promptValid(stdin, " 请输入远程目标服务地址和端口", cfg.RemoteAddr, config.ValidateDialAddr)
+		cfg.RemoteAddr = promptValid(stdin, " 请输入远程目标服务地址和端口", cfg.RemoteAddr, config.ValidateRemoteAddr)
 		cfg.SocksAddr = promptValid(stdin, " 请输入 Socks5 代理地址和端口", cfg.SocksAddr, config.ValidateDialAddr)
 		// 认证用一个是/否问题开头：不需要认证的多数用户只多按一次回车；
 		// 回答"否"同时清掉以前保存的凭据，这也是交互模式下取消认证的方式。

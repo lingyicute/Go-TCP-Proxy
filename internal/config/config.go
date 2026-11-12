@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,7 +174,7 @@ func (c Config) Validate() error {
 	if err := ValidateListenAddr(c.LocalAddr); err != nil {
 		return fmt.Errorf("本地监听地址无效: %w", err)
 	}
-	if err := ValidateDialAddr(c.RemoteAddr); err != nil {
+	if err := ValidateRemoteAddr(c.RemoteAddr); err != nil {
 		return fmt.Errorf("远程目标地址无效: %w", err)
 	}
 	if err := ValidateDialAddr(c.SocksAddr); err != nil {
@@ -250,12 +251,15 @@ func ValidateSocksPassword(password string) error {
 }
 
 // ValidateListenAddr 校验监听地址；允许省略 host（如 ":10808"），也允许端口为 0（由系统随机分配）。
-func ValidateListenAddr(addr string) error { return validateAddr(addr, true) }
+func ValidateListenAddr(addr string) error { return validateAddr(addr, true, true) }
 
-// ValidateDialAddr 校验用于主动连接的地址；host 与 port 都不能为空，端口也不能是 0。
-func ValidateDialAddr(addr string) error { return validateAddr(addr, false) }
+// ValidateDialAddr 校验本机直接发起连接的地址（如 Socks5 代理地址）；host 与 port 都不能为空，端口也不能是 0。
+func ValidateDialAddr(addr string) error { return validateAddr(addr, false, true) }
 
-func validateAddr(addr string, listen bool) error {
+// ValidateRemoteAddr 校验经由 Socks5 转发的远程目标地址；除 ValidateDialAddr 的要求外，不允许携带 IPv6 zone。
+func ValidateRemoteAddr(addr string) error { return validateAddr(addr, false, false) }
+
+func validateAddr(addr string, listen, allowZone bool) error {
 	if addr == "" {
 		return errors.New("不能为空")
 	}
@@ -266,10 +270,17 @@ func validateAddr(addr string, listen bool) error {
 	if host == "" && !listen {
 		return fmt.Errorf("%q 缺少主机名", addr)
 	}
-	// 手动编辑配置、参数加了引号时容易混进空格（" example.com:80"）。主机名里不可能有空白，
-	// 放过去的话服务照常启动，之后每一条连接却都因为代理解析不了这个名字而失败。
-	// "%" 之后是 IPv6 的 zone，不在此列：Windows 的网卡名（"以太网 2"）本身就带空格。
-	if name, _, _ := strings.Cut(host, "%"); strings.ContainsFunc(name, unicode.IsSpace) {
+	// "%" 只在本机直接使用的 IPv6 字面量里引入网卡 zone（Windows 的网卡名如"以太网 2"本身就带空格）：
+	//   - 远程目标经由 SOCKS5 报文发送，RFC 1928 没有 zone 字段，x/net 会把整串当作域名发给代理；
+	//   - 域名、IPv4 或空的 "%" 后缀都不是合法的 IPv6 zone。
+	if strings.Contains(host, "%") {
+		if !allowZone {
+			return fmt.Errorf("%q 远程目标地址不支持 IPv6 zone", addr)
+		}
+		if _, err := netip.ParseAddr(host); err != nil {
+			return fmt.Errorf("%q 不是合法的带 zone IPv6 地址: %w", addr, err)
+		}
+	} else if strings.ContainsFunc(host, unicode.IsSpace) {
 		return fmt.Errorf("%q 主机名里有空白字符", addr)
 	}
 	if len(host) > 255 {

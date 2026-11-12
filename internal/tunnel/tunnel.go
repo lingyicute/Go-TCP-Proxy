@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -148,7 +149,7 @@ type socksDialer interface {
 // resolveDialAddr 校验主动连接地址（host 非空、不含空白且不超过 255 字节、端口在 1..65535 内），
 // 并把服务名端口换算成数字：SOCKS5 报文里的端口是 2 字节整数，x/net 在握手与组装错误时都直接用
 // strconv.Atoi 解析端口，"example.com:ssh" 或 "127.0.0.1:socks" 原样传下去会在连接阶段出错。
-func resolveDialAddr(addr string) (string, error) {
+func resolveDialAddr(addr string, allowZone bool) (string, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return "", err
@@ -156,7 +157,14 @@ func resolveDialAddr(addr string) (string, error) {
 	if host == "" {
 		return "", errors.New("缺少主机名")
 	}
-	if name, _, _ := strings.Cut(host, "%"); strings.ContainsFunc(name, unicode.IsSpace) { // "%" 之后是 IPv6 zone，网卡名可以带空格
+	if strings.Contains(host, "%") {
+		if !allowZone {
+			return "", errors.New("远程目标地址不支持 IPv6 zone")
+		}
+		if _, err := netip.ParseAddr(host); err != nil {
+			return "", fmt.Errorf("不是合法的带 zone IPv6 地址: %w", err)
+		}
+	} else if strings.ContainsFunc(host, unicode.IsSpace) {
 		return "", errors.New("主机名里有空白字符")
 	}
 	if len(host) > 255 {
@@ -174,12 +182,12 @@ func resolveDialAddr(addr string) (string, error) {
 
 // New 校验参数并创建 Server。
 func New(opts Options) (*Server, error) {
-	remoteAddr, err := resolveDialAddr(opts.RemoteAddr)
+	remoteAddr, err := resolveDialAddr(opts.RemoteAddr, false)
 	if err != nil {
 		return nil, fmt.Errorf("远程目标地址无效 %q: %w", opts.RemoteAddr, err)
 	}
 	opts.RemoteAddr = remoteAddr
-	socksAddr, err := resolveDialAddr(opts.SocksAddr)
+	socksAddr, err := resolveDialAddr(opts.SocksAddr, true)
 	if err != nil {
 		return nil, fmt.Errorf("Socks5 代理地址无效 %q: %w", opts.SocksAddr, err)
 	}
