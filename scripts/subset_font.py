@@ -169,18 +169,20 @@ def subset(ttf: Path, chars: set[str], out_dir: Path) -> tuple[Path, list[str]]:
     return out, missing
 
 
-def build_font_css(b64_font: str, fallback_url: str) -> str:
-    return (
-        "@font-face{\n"
-        f'  font-family:"{FONT_FAMILY}";\n'
-        f'  src:url("data:font/woff2;charset=utf-8;base64,{b64_font}") format("woff2"),\n'
-        f'      url("{fallback_url}") format("truetype");\n'
-        "  font-display:swap;\n"
-        "}"
+def build_font_css(b64_font: str, fallback_url: str, nl: str = "\n") -> str:
+    return nl.join(
+        [
+            "@font-face{",
+            f'  font-family:"{FONT_FAMILY}";',
+            f'  src:url("data:font/woff2;charset=utf-8;base64,{b64_font}") format("woff2"),',
+            f'      url("{fallback_url}") format("truetype");',
+            "  font-display:swap;",
+            "}",
+        ]
     )
 
 
-def embed(html: str, font_css: str) -> str:
+def embed(html: str, font_css: str, nl: str = "\n") -> str:
     """替换页面里属于 FONT_FAMILY 的 @font-face；一个都没有就插入新的 <style>。"""
     family_re = re.compile(re.escape(FONT_FAMILY), re.IGNORECASE)
     faces = [m for m in FACE_RE.finditer(html) if family_re.search(m.group(0))]
@@ -196,13 +198,13 @@ def embed(html: str, font_css: str) -> str:
     anchor = re.search(r"<style\b[^>]*>", html, re.IGNORECASE)
     if anchor is not None:
         pos = anchor.start()
-        return html[:pos] + f"<style>\n{font_css}\n</style>\n" + html[pos:]
+        return html[:pos] + f"<style>{nl}{font_css}{nl}</style>{nl}" + html[pos:]
 
     anchor = re.search(r"</head>", html, re.IGNORECASE)
     if anchor is None:
         die("找不到插入 @font-face 的位置：页面既没有 <style> 也没有 </head>。")
     pos = anchor.start()
-    return html[:pos] + f"<style>\n{font_css}\n</style>\n" + html[pos:]
+    return html[:pos] + f"<style>{nl}{font_css}{nl}</style>{nl}" + html[pos:]
 
 
 DATA_URI_RE = re.compile(
@@ -318,8 +320,9 @@ def main(argv: list[str]) -> int:
             shutil.copyfile(woff2, args.keep_woff2)
             log(f"子集另存到 {args.keep_woff2}")
 
+        nl = "\r\n" if "\r\n" in html else "\n"
         b64 = base64.b64encode(woff2.read_bytes()).decode("ascii")
-        new_html = embed(html, build_font_css(b64, args.fallback_url))
+        new_html = embed(html, build_font_css(b64, args.fallback_url, nl), nl)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
