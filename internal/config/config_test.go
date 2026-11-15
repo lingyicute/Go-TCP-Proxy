@@ -347,3 +347,12 @@ func TestSave_DoesNotEscapeHTMLCharacters(t *testing.T) {
 		t.Fatalf("往返不一致: 期望 %+v, 实际 %+v, err=%v", want, got, err)
 	}
 }
+
+// 中文输入法下的冒号是全角的 "："，和半角的很难分清；旧实现只报一句英文的 missing port in address。
+func TestValidate_FullWidthColonGetsAHint(t *testing.T) {
+	for _, addr := range []string{"127.0.0.1：1080", "[::1]：1080"} {
+		if err := ValidateDialAddr(addr); err == nil || !strings.Contains(err.Error(), "全角") {
+			t.Errorf("%q: 应指出冒号是全角的, 实际 %v", addr, err)
+		}
+	}
+}

@@ -288,6 +288,11 @@ func validateAddr(addr string, listen, allowZone bool) error {
 	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
+		// 中文输入法下敲出来的冒号是全角的 "："，肉眼很难和半角的分清，
+		// 而 SplitHostPort 只会报一句让人摸不着头脑的 missing port in address。
+		if strings.Contains(addr, "：") {
+			return fmt.Errorf("%q 里的冒号是全角的，请切换到英文输入法，改用半角的 \":\"", addr)
+		}
 		return fmt.Errorf("%q 不是合法的 host:port: %w", addr, err)
 	}
 	if host == "" && !listen {
