@@ -200,6 +200,22 @@ func TestSave_OverwritesExisting(t *testing.T) {
 	}
 }
 
+// 回归测试：JSON 存不下非 UTF-8 字节，旧实现把它们换成 U+FFFD 照常落盘——下次启动读回来的已经是另一个密码。
+func TestSave_RefusesNonUTF8Values(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := Save(path, Defaults); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Defaults
+	cfg.SocksUser, cfg.SocksPassword = "alice", "\xc3\xdc\xc2\xeb" // "密码" 的 GBK 编码
+	if err := Save(path, cfg); err == nil {
+		t.Fatal("含非 UTF-8 字节的密码不应被保存")
+	}
+	if got, err := Load(path); err != nil || got != Defaults {
+		t.Fatalf("保存被拒绝时原有配置应保持不变: got=%+v err=%v", got, err)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	valid := []Config{
 		Defaults,

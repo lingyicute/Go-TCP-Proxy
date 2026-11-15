@@ -113,7 +113,19 @@ func decodeUTF16(data []byte) []byte {
 // 通过 os.CreateTemp（0600）写临时文件、fsync、再重命名，保证原子替换且不会以过宽的权限落盘：
 // 没有 fsync 的话，rename 之后、数据真正落盘之前断电，部分文件系统会留下一个空的 config.json，
 // 下次启动就会在非交互模式下因"解析配置文件失败"而拒绝启动。
+// 含有非 UTF-8 字节的值无法用 JSON 原样表示，此时返回错误、不动文件。
 func Save(path string, cfg Config) error {
+	// JSON 字符串只能是合法 UTF-8，Encode 会把其余字节悄悄换成 U+FFFD：从非 UTF-8 的终端 / 管道读进来的密码
+	// 照这样落盘，下次启动发给代理的就是另一串字节。本次运行用的是原始字节、不受影响，只是不能保存。
+	for _, f := range []struct{ name, value string }{
+		{"本地监听地址", cfg.LocalAddr}, {"远程目标地址", cfg.RemoteAddr}, {"Socks5 代理地址", cfg.SocksAddr},
+		{"Socks5 代理用户名", cfg.SocksUser}, {"Socks5 代理密码", cfg.SocksPassword},
+	} {
+		if !utf8.ValidString(f.value) {
+			return fmt.Errorf("%s含有非 UTF-8 字节，JSON 无法原样保存，配置未写入文件", f.name)
+		}
+	}
+
 	// 配置文件是给人手动编辑的，不是嵌进 HTML 的：json.Marshal 默认会把 & < > 转义成 \u0026 这类形式，
 	// 密码 "a&b" 落盘后就成了 "a\u0026b"，用户打开文件核对或修改时根本认不出来。Encode 会自带结尾换行。
 	var buf bytes.Buffer
