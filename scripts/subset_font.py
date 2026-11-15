@@ -86,6 +86,18 @@ def collect_chars(html: str, extra: str) -> set[str]:
     return {c for c in chars if c not in "\r\n\t"}
 
 
+def require_deps() -> None:
+    """缺依赖要赶在下载字体之前报出来：否则先白白下完 2.9 MB，走到子集化那一步才发现。"""
+    try:
+        import fontTools  # noqa: F401
+    except ImportError:
+        die("需要 fontTools：pip install -r scripts/requirements.txt")
+    try:
+        import brotli  # noqa: F401  woff2 压缩依赖
+    except ImportError:
+        die("需要 brotli（woff2 压缩）：pip install -r scripts/requirements.txt")
+
+
 def fetch_font(local: Path | None, url: str, refresh: bool) -> tuple[Path, bool]:
     """返回 (全量 TTF 路径, 是否为用完即删的临时文件)。"""
     if local is not None:
@@ -140,15 +152,8 @@ def fetch_font(local: Path | None, url: str, refresh: bool) -> tuple[Path, bool]
 
 
 def subset(ttf: Path, chars: set[str], out_dir: Path) -> tuple[Path, list[str]]:
-    try:
-        from fontTools.subset import Options, Subsetter
-        from fontTools.ttLib import TTFont
-    except ImportError:
-        die("需要 fontTools：pip install -r scripts/requirements.txt")
-    try:
-        import brotli  # noqa: F401  woff2 压缩依赖
-    except ImportError:
-        die("需要 brotli（woff2 压缩）：pip install -r scripts/requirements.txt")
+    from fontTools.subset import Options, Subsetter
+    from fontTools.ttLib import TTFont
 
     # recalcTimestamp=False：否则 head.modified 会被刷成「当前时间」，同样的输入也会
     # 产出不同的字节，于是每跑一次页面就出现一次无意义的 diff。
@@ -214,10 +219,7 @@ DATA_URI_RE = re.compile(
 
 def verify_embedded(html: str, wanted: set[str], not_in_full_font: set[str]) -> None:
     """把页面里内联的 data URI 反解成字体，确认它真的覆盖了页面用到的每个字符。"""
-    try:
-        from fontTools.ttLib import TTFont
-    except ImportError:
-        die("需要 fontTools：pip install -r scripts/requirements.txt")
+    from fontTools.ttLib import TTFont
 
     block = next(
         (
@@ -287,6 +289,7 @@ def main(argv: list[str]) -> int:
 
     if not page.is_file():
         die(f"{page} not found.")
+    require_deps()
     # 按字节读写，不经过文本模式的换行转换：read_text 会把 CRLF 折成 LF，write_text 在 Windows 上
     # 又把每个 LF 写成 CRLF——只改了一行字体数据，整个文件的换行符却全变了，diff 里满屏都是改动。
     html = page.read_bytes().decode("utf-8")
