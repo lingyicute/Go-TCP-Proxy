@@ -83,6 +83,28 @@ func TestLoad_AcceptsUTF16BOM(t *testing.T) {
 	}
 }
 
+// Load 回填占位符之后，调用方靠 RemoteAddrSet 分辨远程目标是不是文件自己写明的。
+func TestRemoteAddrSet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if RemoteAddrSet(path) {
+		t.Error("文件不存在时应返回 false")
+	}
+	for content, want := range map[string]bool{
+		`{"remote_addr": "db.internal:5432"}`:                  true,
+		"\xef\xbb\xbf" + `{"remote_addr": "db.internal:5432"}`: true, // 和 Load 一样认 BOM
+		`{"remote_addr": ""}`:                                  false,
+		`{"remote": "db.internal:5432"}`:                       false, // 键名敲错
+		`{}`:                                                   false,
+		`null`:                                                 false,
+		`{not json`:                                            false,
+	} {
+		os.WriteFile(path, []byte(content), 0o600)
+		if got := RemoteAddrSet(path); got != want {
+			t.Errorf("%q: RemoteAddrSet = %v, 期望 %v", content, got, want)
+		}
+	}
+}
+
 // 回归测试：旧实现对缺字段的配置不做回填，空的 local_addr 会让程序监听 0.0.0.0 的随机端口。
 func TestLoad_FillsMissingFieldsWithDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")

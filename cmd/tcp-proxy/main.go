@@ -324,6 +324,9 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 		return cfg, "", loadErr
 	}
 
+	// Load 会用占位符 example.com:80 回填缺失的字段，回填之后就看不出远程目标是不是文件自己写明的了。
+	remoteFromFile := loadErr == nil && config.RemoteAddrSet(configPath)
+
 	// 3. 命令行参数覆盖配置文件（密码还可以来自环境变量，优先级：参数 > 环境变量 > 配置文件）
 	if opts.listenSet {
 		cfg.LocalAddr = opts.listen
@@ -386,16 +389,20 @@ func resolveConfig(opts *options) (config.Config, string, error) {
 			cfg.SocksUser, cfg.SocksPassword = "", ""
 		}
 		fmt.Println()
-		if stdinEOF && loadErr != nil && cfg.RemoteAddr == config.Defaults.RemoteAddr {
-			// 标准输入已经结束（没有 TTY 的容器 / 服务），又没有保存过的配置可以沿用
-			// （文件不存在，或者损坏后已经用默认值兜底）：此时"默认值"只剩占位符 example.com:80。
+		if stdinEOF && !remoteFromFile && cfg.RemoteAddr == config.Defaults.RemoteAddr {
+			// 标准输入已经结束（没有 TTY 的容器 / 服务），又没有保存过的远程目标可以沿用
+			// （文件不存在、损坏后已经用默认值兜底，或者文件里没写 remote_addr）：此时"默认值"只剩占位符 example.com:80。
 			// 之前这里会静默地把流量转发到 example.com:80，并且把它写进配置文件变成以后的默认值。
-			return cfg, "", errors.New("标准输入已结束且没有可用的配置文件，无法确定远程目标地址；" +
+			return cfg, "", errors.New("标准输入已结束，配置文件里也没有可沿用的远程目标地址；" +
 				"请通过 -r 指定（非交互场景建议使用 -y 或 -l/-r/-s 参数）")
 		}
-	} else if errors.Is(loadErr, config.ErrNotFound) && !opts.remoteSet {
-		// 默认的 example.com:80 只是占位符，非交互模式下不应被静默采用。
-		return cfg, "", errors.New("未找到配置文件，非交互模式下必须通过 -r 指定远程目标地址")
+	} else if !opts.remoteSet && !remoteFromFile {
+		// 默认的 example.com:80 只是占位符，非交互模式下不应被静默采用：没有配置文件是这样，
+		// 文件里没写 remote_addr（漏写，或者把键名敲成了 "remote"）也是这样。
+		if errors.Is(loadErr, config.ErrNotFound) {
+			return cfg, "", errors.New("未找到配置文件，非交互模式下必须通过 -r 指定远程目标地址")
+		}
+		return cfg, "", fmt.Errorf("配置文件 %s 里没有 remote_addr，非交互模式下必须通过 -r 指定远程目标地址", configPath)
 	}
 
 	// 5. 校验

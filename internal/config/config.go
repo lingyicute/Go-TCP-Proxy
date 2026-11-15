@@ -62,12 +62,41 @@ func DefaultPath() (string, error) {
 // Load 读取 path 处的配置。文件不存在时返回 Defaults 和 ErrNotFound；
 // 文件存在但缺少的字段用 Defaults 回填，避免出现空地址。
 func Load(path string) (Config, error) {
+	data, err := read(path)
+	if err != nil {
+		return Defaults, err
+	}
+
+	cfg := Defaults
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Defaults, fmt.Errorf("解析配置文件 %s: %w", path, err)
+	}
+	cfg.FillDefaults()
+	return cfg, nil
+}
+
+// RemoteAddrSet 报告 path 处的配置文件是否自己写明了 remote_addr。Load 会用占位符 example.com:80 回填
+// 缺失或为空的字段，回填之后就分不出来了；键名敲错（"remote"、"remoteAddr"）时同样算没有写明。
+// 文件读不出来或解析失败时返回 false。
+func RemoteAddrSet(path string) bool {
+	data, err := read(path)
+	if err != nil {
+		return false
+	}
+	var raw struct {
+		RemoteAddr string `json:"remote_addr"`
+	}
+	return json.Unmarshal(data, &raw) == nil && raw.RemoteAddr != ""
+}
+
+// read 读出 path 处的配置文件并统一成 UTF-8；文件不存在时返回 ErrNotFound。
+func read(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return Defaults, ErrNotFound
+			return nil, ErrNotFound
 		}
-		return Defaults, fmt.Errorf("读取配置文件 %s: %w", path, err)
+		return nil, fmt.Errorf("读取配置文件 %s: %w", path, err)
 	}
 
 	// Windows 记事本、PowerShell 5 的 Set-Content -Encoding UTF8 保存时会在文件开头写入 UTF-8 BOM，
@@ -79,15 +108,10 @@ func Load(path string) (Config, error) {
 	// 到这里还不是合法 UTF-8，多半是记事本按 ANSI（中文 Windows 上即 GBK）保存的。encoding/json 遇到非法 UTF-8
 	// 不报错，只会悄悄换成 U+FFFD：中文的用户名、密码、网卡名就此变成另一串字符，之后只表现为认证或连接失败。
 	if !utf8.Valid(data) {
-		return Defaults, fmt.Errorf("解析配置文件 %s: 文件不是 UTF-8 编码，请另存为 UTF-8", path)
+		return nil, fmt.Errorf("解析配置文件 %s: 文件不是 UTF-8 编码，请另存为 UTF-8", path)
 	}
 
-	cfg := Defaults
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Defaults, fmt.Errorf("解析配置文件 %s: %w", path, err)
-	}
-	cfg.FillDefaults()
-	return cfg, nil
+	return data, nil
 }
 
 // decodeUTF16 把以 UTF-16 BOM（LE 或 BE）开头的数据转成 UTF-8；没有 BOM 时原样返回。

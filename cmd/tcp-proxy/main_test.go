@@ -127,6 +127,26 @@ func TestResolveConfig_PipedRemoteWithoutConfig(t *testing.T) {
 	}
 }
 
+// 回归测试：配置文件存在但没写 remote_addr（漏写，或者把键名敲成了 "remote"）时，Load 会用占位符回填；
+// 旧实现在非交互模式下（以及标准输入已结束的交互模式下）就这样把流量悄悄转发到了 example.com:80。
+func TestResolveConfig_ConfigWithoutRemoteRejectsPlaceholder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"remote": "git.internal:22", "socks_addr": "10.0.0.1:1080"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, _, err := resolveConfig(mustParse(t, "-y", "-c", path)); err == nil {
+		t.Errorf("-y 且配置文件没写 remote_addr 时应报错, 实际 cfg=%+v", cfg)
+	}
+	useStdin(t, "")
+	if cfg, _, err := resolveConfig(mustParse(t, "-c", path)); err == nil {
+		t.Errorf("标准输入已结束且配置文件没写 remote_addr 时应报错, 实际 cfg=%+v", cfg)
+	}
+	cfg, _, err := resolveConfig(mustParse(t, "-c", path, "-r", "a.internal:1"))
+	if err != nil || cfg.RemoteAddr != "a.internal:1" || cfg.SocksAddr != "10.0.0.1:1080" {
+		t.Errorf("用 -r 补上远程目标后应正常解析: cfg=%+v err=%v", cfg, err)
+	}
+}
+
 func TestResolveConfig_NonInteractiveWithoutConfigRequiresRemote(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.json")
 	if _, _, err := resolveConfig(mustParse(t, "-c", missing, "-y")); err == nil {

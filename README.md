@@ -147,7 +147,7 @@ tcp-proxy -c ~/.config/go-proxy-tunnel/ssh.json -r your-server:22
 | macOS | `~/Library/Application Support/go-proxy-tunnel/config.json` |
 | Windows | `%AppData%\go-proxy-tunnel\config.json` |
 
-文件内容长这样，你也可以直接手动编辑（缺少的字段会自动使用默认值；需要认证时再加上 `socks_user` / `socks_password` 两个字段）：
+文件内容长这样，你也可以直接手动编辑（缺少的字段会自动使用默认值，只有 `remote_addr` 例外——默认的 `example.com:80` 只是占位符，非交互模式下必须在文件里或用 `-r` 写明；需要认证时再加上 `socks_user` / `socks_password` 两个字段）：
 
 ```json
 {
