@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 // AppName 是配置目录名。历史上沿用了旧的 module 名，改名会让老用户的配置"失踪"，因此保持不变。
@@ -75,6 +76,11 @@ func Load(path string) (Config, error) {
 	// PowerShell 5 的 > 重定向和 Out-File 默认写的是带 BOM 的 UTF-16LE，encoding/json 只会报一句
 	// 让人摸不着头脑的 "invalid character 'ÿ'"。BOM 明确标出了编码，转成 UTF-8 再解析即可。
 	data = decodeUTF16(data)
+	// 到这里还不是合法 UTF-8，多半是记事本按 ANSI（中文 Windows 上即 GBK）保存的。encoding/json 遇到非法 UTF-8
+	// 不报错，只会悄悄换成 U+FFFD：中文的用户名、密码、网卡名就此变成另一串字符，之后只表现为认证或连接失败。
+	if !utf8.Valid(data) {
+		return Defaults, fmt.Errorf("解析配置文件 %s: 文件不是 UTF-8 编码，请另存为 UTF-8", path)
+	}
 
 	cfg := Defaults
 	if err := json.Unmarshal(data, &cfg); err != nil {

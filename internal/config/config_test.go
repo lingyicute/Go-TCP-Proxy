@@ -43,6 +43,21 @@ func TestLoad_AcceptsUTF8BOM(t *testing.T) {
 	}
 }
 
+// 回归测试：记事本按 ANSI（中文 Windows 上是 GBK）保存的配置不是合法 UTF-8。encoding/json 对此不报错，
+// 只把这些字节换成 U+FFFD，旧实现于是带着一个面目全非的密码正常启动，之后只表现为认证失败。
+func TestLoad_RejectsNonUTF8(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	// \xc3\xdc\xc2\xeb 是 "密码" 的 GBK 编码
+	os.WriteFile(path, []byte("{\"socks_user\":\"alice\",\"socks_password\":\"\xc3\xdc\xc2\xeb\"}"), 0o600)
+	cfg, err := Load(path)
+	if err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("非 UTF-8 的配置应返回解析错误, 实际 cfg=%+v err=%v", cfg, err)
+	}
+	if cfg != Defaults {
+		t.Fatalf("解析失败时应返回 Defaults, 实际 %+v", cfg)
+	}
+}
+
 // PowerShell 5 的 > / Out-File 默认写出带 BOM 的 UTF-16LE；BE 也一并支持。
 func TestLoad_AcceptsUTF16BOM(t *testing.T) {
 	text := `{"remote_addr":"db.internal:5432","socks_user":"alice","socks_password":"密码"}`
