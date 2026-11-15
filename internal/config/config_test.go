@@ -228,6 +228,10 @@ func TestValidate(t *testing.T) {
 		"user too long":         {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("u", 256)},
 		"user too long utf8":    {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: strings.Repeat("密", 86)}, // 86 个汉字 = 258 字节
 		"password too long":     {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080", SocksUser: "alice", SocksPassword: strings.Repeat("p", 256)},
+		// 控制字符：NUL 在 Windows 上会让 Go 1.26.0–1.26.2 的 net.LookupPort / Dial panic（GO-2026-4971）
+		"remote host with NUL": {LocalAddr: "127.0.0.1:1", RemoteAddr: "exa\x00mple.com:80", SocksAddr: "127.0.0.1:1080"},
+		"socks port with NUL":  {LocalAddr: "127.0.0.1:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:10\x0080"},
+		"local zone with ESC":  {LocalAddr: "[fe80::1%eth\x1b0]:1", RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1:1080"},
 	}
 	for name, c := range invalid {
 		if err := c.Validate(); err == nil {

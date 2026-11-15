@@ -311,6 +311,9 @@ func TestNew_ValidatesAddresses(t *testing.T) {
 		{"socks ipv4 with zone", Options{RemoteAddr: "example.com:80", SocksAddr: "127.0.0.1%lo:1080"}},
 		{"socks domain percent", Options{RemoteAddr: "example.com:80", SocksAddr: "example.com% 2:1080"}},
 		{"socks host too long", Options{RemoteAddr: "example.com:80", SocksAddr: strings.Repeat("a", 256) + ":1080"}},
+		// 控制字符：NUL 在 Windows 上会让 Go 1.26.0–1.26.2 的 net.LookupPort / Dial panic（GO-2026-4971）
+		{"remote host with NUL", Options{RemoteAddr: "exa\x00mple.com:80", SocksAddr: "127.0.0.1:1080"}},
+		{"socks zone with NUL", Options{RemoteAddr: "example.com:80", SocksAddr: "[fe80::1%eth\x000]:1080"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

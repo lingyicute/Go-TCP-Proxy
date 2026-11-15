@@ -263,6 +263,11 @@ func validateAddr(addr string, listen, allowZone bool) error {
 	if addr == "" {
 		return errors.New("不能为空")
 	}
+	// 控制字符不会出现在任何合法地址里（zone 里的网卡名也一样）。其中的 NUL 还会让 Go 1.26.0–1.26.2 在 Windows 上的
+	// net.LookupPort / Listen / Dial 直接 panic（GO-2026-4971），必须赶在调用它们之前拦下。
+	if strings.ContainsFunc(addr, unicode.IsControl) {
+		return fmt.Errorf("%q 含有控制字符", addr)
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("%q 不是合法的 host:port: %w", addr, err)

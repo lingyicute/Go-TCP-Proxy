@@ -147,10 +147,15 @@ type socksDialer interface {
 	DialWithConn(ctx context.Context, c net.Conn, network, address string) (net.Addr, error)
 }
 
-// resolveDialAddr 校验主动连接地址（host 非空、不含空白且不超过 255 字节、端口在 1..65535 内），
+// resolveDialAddr 校验主动连接地址（不含控制字符，host 非空、不含空白且不超过 255 字节、端口在 1..65535 内），
 // 并把服务名端口换算成数字：SOCKS5 报文里的端口是 2 字节整数，x/net 在握手与组装错误时都直接用
 // strconv.Atoi 解析端口，"example.com:ssh" 或 "127.0.0.1:socks" 原样传下去会在连接阶段出错。
 func resolveDialAddr(addr string, allowZone bool) (string, error) {
+	// 与 config 的校验一致：控制字符不可能是合法地址的一部分，其中的 NUL 还会让 Go 1.26.0–1.26.2
+	// 在 Windows 上的 net.LookupPort / Dial 直接 panic（GO-2026-4971）。
+	if strings.ContainsFunc(addr, unicode.IsControl) {
+		return "", errors.New("地址里有控制字符")
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return "", err
