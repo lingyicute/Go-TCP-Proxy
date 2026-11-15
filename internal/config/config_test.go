@@ -378,3 +378,13 @@ func TestValidate_FullWidthColonGetsAHint(t *testing.T) {
 		}
 	}
 }
+
+// 代理软件的文档和 ALL_PROXY 里写的都是 socks5://127.0.0.1:1080 这样的 URL，顺手粘贴过来很常见；
+// 旧实现只报 too many colons，没有端口的 http://example.com 还会被说成"端口无效"。
+func TestValidate_SchemePrefixGetsAHint(t *testing.T) {
+	for _, addr := range []string{"socks5://127.0.0.1:1080", "http://example.com", "ssh://[::1]:22"} {
+		if err := ValidateDialAddr(addr); err == nil || !strings.Contains(err.Error(), "协议前缀") {
+			t.Errorf("%q: 应指出多了协议前缀, 实际 %v", addr, err)
+		}
+	}
+}

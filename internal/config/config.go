@@ -310,6 +310,11 @@ func validateAddr(addr string, listen, allowZone bool) error {
 	if strings.ContainsFunc(addr, unicode.IsControl) {
 		return fmt.Errorf("%q 含有控制字符", addr)
 	}
+	// 代理软件的文档和 ALL_PROXY 之类的环境变量里写的都是 socks5://127.0.0.1:1080 这样的 URL，顺手粘贴过来时
+	// SplitHostPort 只会抱怨 too many colons，没有端口的 http://example.com 甚至会被拆成主机 "http"。
+	if strings.Contains(addr, "://") {
+		return fmt.Errorf("%q 带有协议前缀，这里只需要 host:port，请去掉 \"://\" 和它前面的部分", addr)
+	}
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		// 中文输入法下敲出来的冒号是全角的 "："，肉眼很难和半角的分清，
